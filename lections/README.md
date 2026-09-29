@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- | --- |
 | Практика 1. Проект: знакомим с техническими бизнес-контекстами |[Ссылка](https://avito.ktalk.ru/recordings/BhfuSd9Ul2N97QaI5qmW) |[Ссылка](https://avito.ktalk.ru/recordings/RUUCJsvyG0ExhgVDJnnT) |[Ссылка](https://avito.ktalk.ru/recordings/9LkxXkep0waOw72mx9Em)|[Cсылка](https://avito.ktalk.ru/recordings/dFiBoeC0tYXXOw1X2dbE)|[Ссылка](https://avito.ktalk.ru/recordings/aiZOTHeLfapVGQ5LZAqh)|
 | Практика 2. Дорабатываем артефакты для программирования логики |[Ссылка](https://avito.ktalk.ru/recordings/aobgj0wy0CUdwNacFW3a)|[Ссылка](https://avito.ktalk.ru/recordings/eUzSG3EdU32ANJ2mxp9O)|[Ссылка](https://avito.ktalk.ru/recordings/eUzSG3EdU32ANJ2mxp9O)|[Ссылка](https://avito.ktalk.ru/recordings/D2BsWZMecxkLBLpqhvZg)|[Ссылка](https://avito.ktalk.ru/recordings/GAGqXekCumbvwUnACcY3)|
-| [Практика 3. Локальные модели и OpenCode](../practices/practice_03/README.md) | | | | | |
+| [Практика 3. Локальные модели и OpenCode](../practices/practice_03/README.md) |[Ссылка](https://avito.ktalk.ru/recordings/VyHl6ftoBLpsNEEJIXNs) |[Ссылка](https://avito.ktalk.ru/recordings/2wgNNDAC32AqUSQEGgin) |[Ссылка](https://avito.ktalk.ru/recordings/NF0of34SCgINRFkR28G0) |[Ссылка](https://avito.ktalk.ru/recordings/VyHl6ftoBLpsNEEJIXNs) |[Ссылка](https://avito.ktalk.ru/recordings/E3mTDmnCA2qzvUCg9Il4) |
 | Практика 4. MCP и скиллы | | | | | |
 | Практика 5. Spec-driven development | | | | | |
 | Практика 6. Пишем бенчмарки для AI | | | | | |
