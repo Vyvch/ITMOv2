@@ -1,6 +1,6 @@
 ---
 name: code-documentation
-description: Always write clear, concise docstrings and inline comments for any new or modified code.
+description: Обязательно пиши понятные докстринги и комментарии для любого нового или изменённого кода.
 ---
 
-When writing or modifying Python code, always include Google-style docstrings for modules, classes, and functions. Ensure that your descriptions explain *why* the code exists, rather than just *what* it does, to provide helpful context for future developers. Avoid writing redundant comments for self-explanatory code, and focus on documenting complex business logic, edge cases, and architectural decisions.
+При написании или изменении Python-кода всегда добавляй докстринги в стиле Google для модулей, классов и функций. Твои комментарии должны объяснять *почему* написан этот код, а не просто *что* он делает, чтобы дать разработчикам контекст. Избегай избыточных комментариев для очевидного кода и фокусируйся на описании сложной бизнес-логики, краевых случаев и архитектурных решений.
