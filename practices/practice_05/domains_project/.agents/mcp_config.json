@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "2captcha": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@2captcha/mcp"
+      ],
+      "env": {
+        "API_TOKEN": "YOUR_API_TOKEN_HERE"
+      }
+    },
+    "whois-local": {
+      "command": "python",
+      "args": [
+        "mcp_whois.py"
+      ]
+    }
+  }
+}
