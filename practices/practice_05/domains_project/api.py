@@ -1,13 +1,16 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import datetime
 import time
 import os
 
-from services import get_domains, evaluate_top_domains, filter_domains, InvalidPatternError
+from services import (
+    get_domains, evaluate_top_domains, filter_domains, InvalidPatternError,
+    get_wayback_history, shutdown_service, HistoryPending, WaybackError,
+)
 from mcp_client import mcp_client
-from models import DomainItem
+from models import DomainItem, WaybackPending
 
 app = FastAPI(title="Freeing Domains API")
 
@@ -22,6 +25,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     mcp_client.close()
+    await shutdown_service()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -37,6 +41,23 @@ def api_get_domains(regex: str | None = None) -> list[dict]:
         except InvalidPatternError as e:
             raise HTTPException(status_code=400, detail=f"Некорректное регулярное выражение: {e}")
     return [d.dict() for d in domains]
+
+@app.get("/api/wayback")
+async def api_wayback(domain: str = "") -> JSONResponse:
+    # История домена в веб-архиве; формат — specs/wayback-contract.md.
+    # Пустое значение по умолчанию: без параметра — 400 invalid_domain, а не 422 FastAPI.
+    try:
+        history = await get_wayback_history(domain)
+    except HistoryPending as e:
+        body = WaybackPending(domain=e.domain, retry_after=e.retry_after)
+        return JSONResponse(status_code=202, content=body.model_dump(),
+                            headers={"Retry-After": str(e.retry_after)})
+    except WaybackError as e:
+        # JSONResponse, а не HTTPException: тело ошибки — {"code", "detail"} на верхнем уровне
+        headers = {"Retry-After": str(e.retry_after)} if e.retry_after else None
+        return JSONResponse(status_code=e.status, content={"code": e.code, "detail": e.detail},
+                            headers=headers)
+    return JSONResponse(content=history.model_dump())
 
 _LLM_CACHE = {}
 

@@ -1,6 +1,6 @@
 # UI Contract: История домена в веб-архиве
 
-HTTP-обмен с сервером — только по `specs/wayback-contract.md` v1.1 (`GET /api/wayback?domain=`);
+HTTP-обмен с сервером — только по `specs/wayback-contract.md` v1.2 (`GET /api/wayback?domain=`);
 здесь он не повторяется. Этот файл фиксирует то, на что опираются тесты интерфейса:
 программный интерфейс `WaybackCore` и якоря DOM в `templates/index.html`.
 
@@ -54,7 +54,7 @@ HTTP-обмен с сервером — только по `specs/wayback-contrac
 | `#domain-dialog-date` | дата освобождения |
 | `a.wayback-link` | «Открыть в веб-архиве», `target="_blank" rel="noopener noreferrer"` |
 | `.wayback-history[role="status"]` | блок истории (в диалоге и в каждой строке Топ-20) |
-| `button.wayback-request` | «Запросить историю» (только диалог) |
+| `button.wayback-request` | «Запросить историю» (в диалоге и в каждой строке Топ-20 в состоянии `idle`) |
 | `button.wayback-retry` | «Повторить» / «Повторить через N с» |
 | `button.domain-dialog-close` | «Закрыть» |
 | `th` «Веб-архив» в `#top-table` | новая колонка Топ-20 |
@@ -70,6 +70,8 @@ HTTP-обмен с сервером — только по `specs/wayback-contrac
 
 - Нет `outerHTML`, `insertAdjacentHTML`, `document.write`; `innerHTML` — только `= ''`.
 - `fetch(` — только относительные адреса `/api/...`.
+- `loadTop()` не создаёт и не запускает загрузчики истории при отрисовке списка (FR-018): загрузчик
+  строки создаётся в обработчике её кнопки «Запросить историю».
 - Каждый подставляемый в адрес `fetch` параметр обёрнут в `encodeURIComponent(...)`: в шаблонной
   строке — только `${encodeURIComponent(...)}`, при конкатенации — `+ encodeURIComponent(...)`
   (принцип V).

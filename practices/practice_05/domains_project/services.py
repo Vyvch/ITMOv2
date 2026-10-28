@@ -8,7 +8,15 @@ from typing import List
 
 import re2
 
-from models import DomainItem
+from models import DomainItem, WaybackHistory
+# История в веб-архиве: общая точка входа для API и CLI (логика — в wayback.py)
+from wayback import (  # noqa: F401
+    HistoryPending,
+    WaybackError,
+    get_service,
+    reset_service,
+    shutdown_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +183,12 @@ def _fallback_error(candidates: List[DomainItem], error_msg: str) -> List[Domain
         c.reason = error_msg
         result.append(c)
     return result
+
+
+async def get_wayback_history(domain: str) -> WaybackHistory:
+    """
+    История главной страницы домена в веб-архиве.
+    Бросает WaybackError (InvalidDomain, ArchiveOverloaded, ArchiveTimeout, ArchiveUnavailable)
+    или HistoryPending, если результат не готов к сроку ответа.
+    """
+    return await get_service().get_history(domain)
