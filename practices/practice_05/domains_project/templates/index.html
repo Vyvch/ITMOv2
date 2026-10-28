@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Освобождающиеся Домены</title>
+    <style>
+        :root {
+            --bg: #FAFAFA;
+            --fg: #222222;
+            --border: #DDDDDD;
+            --accent: #0070f3;
+            --error: #D32F2F;
+        }
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--fg);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.4;
+        }
+        header {
+            margin-bottom: 2rem;
+            border-bottom: 3px solid var(--fg);
+            padding-bottom: 1rem;
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin: 0;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            text-transform: uppercase;
+        }
+        .subtitle {
+            font-size: 1rem;
+            color: #555;
+            margin-top: 0.5rem;
+        }
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .tab {
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--fg);
+            background: transparent;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .tab.active {
+            background: var(--fg);
+            color: var(--bg);
+        }
+        .content {
+            display: none;
+        }
+        .content.active {
+            display: block;
+        }
+        
+        /* Date Filters */
+        .date-filters {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid var(--border);
+            background: #FFF;
+            cursor: pointer;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            transition: 0.2s;
+        }
+        .filter-btn.active {
+            background: var(--fg);
+            color: var(--bg);
+            border-color: var(--fg);
+        }
+
+        /* Search */
+        .search-box {
+            margin-left: auto;
+        }
+        .search-row {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .search-input {
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            outline: none;
+        }
+        .search-input.invalid {
+            border-color: var(--error);
+            box-shadow: 0 0 0 1px var(--error);
+        }
+        .regex-toggle {
+            padding: 0.35rem 0.6rem;
+            border: 1px solid var(--border);
+            background: #FFF;
+            border-radius: 6px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .regex-toggle.active {
+            background: var(--fg);
+            color: var(--bg);
+            border-color: var(--fg);
+        }
+        .regex-toggle.locked {
+            cursor: default;
+        }
+        .search-count {
+            font-size: 0.8rem;
+            color: #666;
+            white-space: nowrap;
+            min-width: 6.5em;
+        }
+        .search-error {
+            /* In normal flow: pushes the grid down instead of overlapping it.
+               width:0 + min-width:100% keeps a long message from widening the box. */
+            width: 0;
+            min-width: 100%;
+            box-sizing: border-box;
+            padding: 0 0.8rem;
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--error);
+            overflow-wrap: anywhere;
+        }
+        
+        /* Grid Layout for Domains */
+        .domain-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.5rem;
+        }
+        .domain-card {
+            display: block;
+            width: 100%;
+            font: inherit;
+            color: inherit;
+            background: #FFF;
+            border: 1px solid var(--border);
+            padding: 0.75rem;
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .domain-card:hover {
+            border-color: var(--fg);
+        }
+        .domain-card:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+        .domain-card .d-name {
+            font-weight: bold;
+            font-size: 1rem;
+            word-break: break-all;
+            overflow-wrap: break-word;
+        }
+        .domain-card .d-date {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+
+        /* Top 20 Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #FFF;
+            border: 2px solid var(--fg);
+        }
+        th, td {
+            text-align: left;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+        th {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: #888;
+            border-bottom: 2px solid var(--fg);
+        }
+        
+        /* Pagination */
+        .pagination {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+        }
+        .pagination button {
+            padding: 0.4rem 0.8rem;
+            background: var(--fg);
+            color: var(--bg);
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+        .pagination button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .pagination input {
+            width: 50px;
+            padding: 0.3rem;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        
+        .loader {
+            padding: 2rem;
+            font-style: italic;
+            color: #666;
+        }
+
+        /* Domain dialog: padding sits on the inner body, so a click on the dialog itself is the backdrop */
+        .domain-dialog {
+            padding: 0;
+            width: min(440px, calc(100vw - 2rem));
+            border: 2px solid var(--fg);
+            border-radius: 4px;
+            background: #FFF;
+            color: var(--fg);
+        }
+        .domain-dialog::backdrop {
+            background: rgba(34, 34, 34, 0.45);
+        }
+        .domain-dialog-body {
+            padding: 1.25rem 1.5rem 1.5rem;
+        }
+        .domain-dialog-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+        .domain-dialog h2 {
+            margin: 0;
+            font-size: 1.4rem;
+            word-break: break-all;
+            overflow-wrap: break-word;
+        }
+        .domain-dialog-date {
+            margin: 0.25rem 0 1rem;
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .domain-dialog-close {
+            flex-shrink: 0;
+            padding: 0.3rem 0.7rem;
+            border: 1px solid var(--border);
+            background: #FFF;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+        .wayback-link {
+            color: var(--accent);
+            font-weight: bold;
+        }
+        .wayback-history {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+        .wayback-cell .wayback-history {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .wayback-history > div + div {
+            margin-top: 0.25rem;
+        }
+        .wayback-message {
+            color: #555;
+        }
+        .wayback-request,
+        .wayback-retry {
+            padding: 0.4rem 0.8rem;
+            background: var(--fg);
+            color: var(--bg);
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .wayback-retry {
+            margin-top: 0.5rem;
+        }
+        .wayback-request:disabled,
+        .wayback-retry:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ДОМЕНЫ</h1>
+        <div class="subtitle">Мониторинг освобождающихся доменов .ru, .su, .рф</div>
+    </header>
+    
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('all', event)">Все домены</button>
+        <button class="tab" onclick="switchTab('top', event, 'today')">Топ-20 (Сегодня)</button>
+        <button class="tab" onclick="switchTab('top', event, 'tomorrow')">Топ-20 (Завтра)</button>
+    </div>
+
+    <div id="all" class="content active">
+        <div class="date-filters" id="date-filters" style="display:none; align-items: flex-start;">
+            <button class="filter-btn active" data-date="all" onclick="toggleFilter('all')">Все дни</button>
+            <button class="filter-btn" data-date="today" onclick="toggleFilter('today')">Сегодня</button>
+            <button class="filter-btn" data-date="tomorrow" onclick="toggleFilter('tomorrow')">Завтра</button>
+            <button class="filter-btn" data-date="dayafter" onclick="toggleFilter('dayafter')">Послезавтра</button>
+            
+            <div class="search-box">
+                <div class="search-row">
+                    <input type="text" id="search-input" class="search-input" placeholder="Поиск по имени..." oninput="handleSearch(this.value)" aria-describedby="search-error">
+                    <button type="button" id="regex-toggle" class="regex-toggle" onclick="toggleRegex()" aria-pressed="false" title="Регулярное выражение (синтаксис RE2)">.*</button>
+                    <span id="search-count" class="search-count" aria-live="polite"></span>
+                </div>
+                <div id="search-error" class="search-error" role="alert" hidden></div>
+            </div>
+        </div>
+        
+        <div id="all-loader" class="loader">Получение списка доменов...</div>
+        
+        <div id="domain-grid" class="domain-grid"></div>
+        
+        <div id="pagination" class="pagination" style="display:none;">
+            <button id="btn-prev" onclick="prevPage()">Назад</button>
+            <span>Стр. <input type="number" id="page-input" min="1" value="1" onchange="jumpToPage()"> из <span id="total-pages">1</span></span>
+            <button id="btn-next" onclick="nextPage()">Вперед</button>
+        </div>
+    </div>
+
+    <div id="top" class="content">
+        <div id="top-loader" class="loader">ИИ анализирует и запрашивает WHOIS (ожидайте)...</div>
+        <table id="top-table" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Домен</th>
+                    <th>Обоснование LLM</th>
+                    <th>WHOIS Инфо</th>
+                    <th>Веб-архив</th>
+                </tr>
+            </thead>
+            <tbody id="top-body"></tbody>
+        </table>
+    </div>
+
+    <dialog id="domain-dialog" class="domain-dialog" aria-labelledby="domain-dialog-title">
+        <div class="domain-dialog-body">
+            <div class="domain-dialog-head">
+                <h2 id="domain-dialog-title"></h2>
+                <button type="button" class="domain-dialog-close">Закрыть</button>
+            </div>
+            <div id="domain-dialog-date" class="domain-dialog-date"></div>
+            <a class="wayback-link" target="_blank" rel="noopener noreferrer">Открыть в веб-архиве</a>
+            <div class="wayback-history" role="status" aria-live="polite">
+                <button type="button" class="wayback-request">Запросить историю</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script id="wayback-core">
+        // Wayback history logic without DOM; tests run this block in node (tests/test_wayback_ui.py).
+        // Timers and fetch come only through deps.
+        (() => {
+            const DEADLINE_MS = 120000;        // whole attempt, including 202 retries (FR-013)
+            const REQUEST_TIMEOUT_MS = 20000;  // one request, counted from the actual send
+            const MAX_PARALLEL = 4;            // browser keeps ~6 connections per host (research R9)
+
+            // URL gives the ASCII host: lower case, punycode for .рф. Anything that is not a plain
+            // host name is percent-encoded, so one odd name neither throws nor points to another host.
+            function archiveUrl(domain) {
+                const name = String(domain).trim();
+                let host = encodeURIComponent(name);
+                if (/^[\p{L}\p{N}.-]+$/u.test(name)) {
+                    try {
+                        host = new URL('http://' + name).hostname;
+                    } catch {
+                        // keep the encoded name
+                    }
+                }
+                return 'https://web.archive.org/web/*/' + host;
+            }
+
+            // Rearranging parts keeps the UTC date from shifting to the browser's time zone
+            function formatDate(text) {
+                const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(typeof text === 'string' ? text : '');
+                return match ? `${match[3]}.${match[2]}.${match[1]}` : '—';
+            }
+
+            const countFormat = new Intl.NumberFormat('ru-RU');
+
+            function formatCount(count, truncated) {
+                return countFormat.format(count) + (truncated ? '+' : '');
+            }
+
+            // Snapshot links: only the archive itself (FR-010)
+            function safeHref(url) {
+                if (typeof url !== 'string' || !url) return null;
+                try {
+                    const parsed = new URL(url);
+                    return parsed.protocol === 'https:' && parsed.hostname === 'web.archive.org' ? url : null;
+                } catch {
+                    return null;
+                }
+            }
+
+            function positiveSeconds(value) {
+                const n = typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
+                return Number.isInteger(n) && n >= 1 ? n : null;
+            }
+
+            function toSnapshot(raw) {
+                if (!raw || typeof raw.date !== 'string' || typeof raw.url !== 'string') return null;
+                return { dateText: formatDate(raw.date), href: safeHref(raw.url) };
+            }
+
+            // Server answer → WaybackResult (data-model.md); branches on status and code, never on detail
+            function classifyResponse(status, retryAfterHeader, bodyText) {
+                let body;
+                try {
+                    body = JSON.parse(bodyText);
+                } catch {
+                    return { kind: 'failed' };
+                }
+                if (!body || typeof body !== 'object') return { kind: 'failed' };
+
+                if (status === 200) {
+                    const count = body.snapshot_count;
+                    if (!Number.isInteger(count) || count < 0) return { kind: 'failed' };
+                    if (count === 0) return { kind: 'empty' };
+                    return {
+                        kind: 'success', count, truncated: body.count_truncated === true,
+                        first: toSnapshot(body.first), last: toSnapshot(body.last),
+                    };
+                }
+                if (status === 202) {
+                    const retryAfterSec = positiveSeconds(body.retry_after) ?? positiveSeconds(retryAfterHeader) ?? 1;
+                    return { kind: 'pending', retryAfterSec };
+                }
+                if (status === 503 && body.code === 'archive_overloaded') {
+                    return { kind: 'overloaded', retryAfterSec: positiveSeconds(retryAfterHeader) };
+                }
+                if (status === 504 && body.code === 'archive_timeout') return { kind: 'timeout', reason: 'server' };
+                if (status === 400 && body.code === 'invalid_domain') return { kind: 'invalid' };
+                return { kind: 'failed' };
+            }
+
+            // Results kept until reload: only final answers, never errors (FR-015)
+            function createMemo() {
+                const results = new Map();
+                return {
+                    get: domain => results.get(domain.toLowerCase()),
+                    put(domain, result) {
+                        if (result.kind === 'success' || result.kind === 'empty') results.set(domain.toLowerCase(), result);
+                    },
+                };
+            }
+
+            function abortError() {
+                const error = new Error('aborted');
+                error.name = 'AbortError';
+                return error;
+            }
+
+            // At most `max` tasks at once, FIFO; a task aborted while queued never starts
+            function createLimiter(max) {
+                let active = 0;
+                const queue = [];
+
+                function next() {
+                    while (active < max && queue.length) {
+                        const job = queue.shift();
+                        job.release();
+                        active++;
+                        Promise.resolve()
+                            .then(job.task)
+                            .then(job.resolve, job.reject)
+                            .finally(() => {
+                                active--;
+                                next();
+                            });
+                    }
+                }
+
+                return {
+                    run(task, signal) {
+                        return new Promise((resolve, reject) => {
+                            if (signal?.aborted) return reject(abortError());
+                            const onAbort = () => {
+                                queue.splice(queue.indexOf(job), 1);
+                                reject(abortError());
+                            };
+                            // The abort listener only matters while the job waits in the queue
+                            const job = { task, resolve, reject, release: () => signal?.removeEventListener('abort', onAbort) };
+                            signal?.addEventListener('abort', onAbort, { once: true });
+                            queue.push(job);
+                            next();
+                        });
+                    },
+                };
+            }
+
+            // onTick(seconds) right away, then once a second down to onTick(0) (FR-012b)
+            function createCountdown(seconds, deps, onTick) {
+                let left = seconds;
+                let timer = null;
+                const tick = () => {
+                    left--;
+                    onTick(left);
+                    timer = left > 0 ? deps.setTimer(tick, 1000) : null;
+                };
+                onTick(left);
+                if (left > 0) timer = deps.setTimer(tick, 1000);
+                return {
+                    cancel() {
+                        if (timer !== null) deps.clearTimer(timer);
+                        timer = null;
+                    },
+                };
+            }
+
+            // One domain's history: 202 retries, deadline, request timeout, cancel (research R4)
+            function createHistoryLoader(domain, deps) {
+                const url = '/api/wayback?domain=' + encodeURIComponent(domain);
+                let attempt = null;  // { timers, controller, deadlineAt }; replaced on every start/cancel
+
+                function stop() {
+                    if (!attempt) return;
+                    for (const id of attempt.timers) deps.clearTimer(id);
+                    attempt.controller?.abort();
+                    attempt = null;
+                }
+
+                function later(current, fn, ms) {
+                    const id = deps.setTimer(() => {
+                        current.timers.delete(id);
+                        if (attempt === current) fn();
+                    }, ms);
+                    current.timers.add(id);
+                    return id;
+                }
+
+                function finish(current, result) {
+                    if (attempt !== current) return;
+                    stop();
+                    deps.memo.put(domain, result);
+                    deps.onState(result);
+                }
+
+                function request(current) {
+                    const controller = new AbortController();
+                    current.controller = controller;
+                    // The slot is held for this one request only: a 202 wait happens outside it
+                    deps.limiter.run(() => {
+                        if (attempt !== current) return null;
+                        let timeoutId;
+                        const timedOut = new Promise(resolve => {
+                            timeoutId = later(current, () => resolve({ kind: 'timeout', reason: 'request' }),
+                                              REQUEST_TIMEOUT_MS);
+                        });
+                        const aborted = new Promise(resolve => {
+                            controller.signal.addEventListener('abort', () => resolve(null), { once: true });
+                        });
+                        const answered = deps.fetchFn(url, { signal: controller.signal })
+                            .then(async res => classifyResponse(res.status, res.headers.get('Retry-After'), await res.text()))
+                            .catch(() => ({ kind: 'failed' }));
+                        return Promise.race([answered, timedOut, aborted]).finally(() => {
+                            deps.clearTimer(timeoutId);
+                            current.timers.delete(timeoutId);
+                        });
+                    }, controller.signal).then(result => {
+                        if (!result || attempt !== current) return;
+                        if (result.kind !== 'pending') return finish(current, result);
+                        const delay = result.retryAfterSec * 1000;
+                        // A retry past the deadline is pointless: the deadline timer ends the attempt
+                        if (deps.now() + delay < current.deadlineAt) later(current, () => request(current), delay);
+                    }, () => {});
+                }
+
+                return {
+                    start() {
+                        stop();
+                        const cached = deps.memo.get(domain);
+                        if (cached) return deps.onState(cached);
+                        const current = { timers: new Set(), controller: null, deadlineAt: deps.now() + DEADLINE_MS };
+                        attempt = current;
+                        deps.onState({ kind: 'loading' });
+                        later(current, () => finish(current, { kind: 'timeout', reason: 'deadline' }), DEADLINE_MS);
+                        request(current);
+                    },
+                    cancel: stop,
+                };
+            }
+
+            globalThis.WaybackCore = {
+                DEADLINE_MS, REQUEST_TIMEOUT_MS, MAX_PARALLEL,
+                archiveUrl, formatDate, formatCount, safeHref, classifyResponse,
+                createMemo, createLimiter, createCountdown, createHistoryLoader,
+            };
+        })();
+    </script>
+    <script>
+        let allDomains = [];
+        let filteredDomains = [];
+        let currentPage = 1;
+        const perPage = 100;
+        let searchQuery = '';
+
+        // Regex search (server-side, RE2)
+        const REGEX_CHARS = /[\^$*+?()[\]{}|\\]/;
+        const REGEX_DEBOUNCE_MS = 300;
+        let rawQuery = '';
+        let manualRegex = false;
+        let wasRegexMode = false;
+        let regexResult = null;   // last valid regex result of the current regex session
+        let requestSeq = 0;       // stale responses (seq !== requestSeq) are dropped
+        let regexTimer = null;
+
+        function getLocalDateString(d) {
+            const tzOffset = d.getTimezoneOffset() * 60000;
+            return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
+        }
+
+        const today = new Date();
+        const todayStr = getLocalDateString(today);
+        
+        const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+        const tomorrowStr = getLocalDateString(tomorrow);
+        
+        const dayAfter = new Date(); dayAfter.setDate(today.getDate() + 2);
+        const dayAfterStr = getLocalDateString(dayAfter);
+
+        let activeFilters = ['all'];
+
+        // Builds DOM without HTML parsing: external data goes in only as text (constitution, principle V)
+        function el(tag, props = {}, children = []) {
+            const node = document.createElement(tag);
+            if (props.className) node.className = props.className;
+            if (props.text !== undefined) node.textContent = props.text;
+            if (props.href) node.href = props.href;
+            for (const [name, value] of Object.entries(props.attrs || {})) node.setAttribute(name, value);
+            if (props.style) Object.assign(node.style, props.style);
+            for (const [type, handler] of Object.entries(props.on || {})) node.addEventListener(type, handler);
+            for (const child of children) {
+                node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+            }
+            return node;
+        }
+
+        // Wayback history blocks (card dialog and Top-20 rows) share one request queue and one memo
+        const waybackLimiter = WaybackCore.createLimiter(WaybackCore.MAX_PARALLEL);
+        const waybackMemo = WaybackCore.createMemo();
+        const timerDeps = { setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id) };
+
+        function historyButton(className, text, onClick) {
+            return el('button', {className, text, attrs: {type: 'button'}, on: {click: onClick}});
+        }
+
+        function snapshotLine(label, snapshot) {
+            if (!snapshot) return el('div', {text: label + '—'});
+            const date = snapshot.href
+                ? el('a', {href: snapshot.href, text: snapshot.dateText, attrs: {target: '_blank', rel: 'noopener noreferrer'}})
+                : snapshot.dateText;
+            return el('div', {}, [label, date]);
+        }
+
+        // Draws one state of the block (data-model.md, HistoryBlockState); returns dispose() for the countdown
+        function renderHistory(container, result, handlers) {
+            const message = text => el('div', {className: 'wayback-message', text});
+            const retry = () => historyButton('wayback-retry', 'Повторить', handlers.onRetry);
+            let countdown = null;
+
+            switch (result.kind) {
+                case 'idle':
+                    container.replaceChildren(historyButton('wayback-request', 'Запросить историю', handlers.onRequest));
+                    break;
+                case 'loading':
+                    container.replaceChildren(message('Загрузка истории…'));
+                    break;
+                case 'success':
+                    container.replaceChildren(
+                        el('div', {text: 'Снимков: ' + WaybackCore.formatCount(result.count, result.truncated)}),
+                        snapshotLine('Первый: ', result.first),
+                        snapshotLine('Последний: ', result.last),
+                    );
+                    break;
+                case 'empty':
+                    container.replaceChildren(message('Нет снимков в веб-архиве'));
+                    break;
+                case 'overloaded': {
+                    const button = retry();
+                    container.replaceChildren(message('Веб-архив перегружен, попробуйте позже'), button);
+                    if (result.retryAfterSec) {
+                        countdown = WaybackCore.createCountdown(result.retryAfterSec, timerDeps, left => {
+                            button.disabled = left > 0;
+                            button.textContent = left > 0 ? `Повторить через ${left} с` : 'Повторить';
+                        });
+                    }
+                    break;
+                }
+                case 'timeout':
+                    container.replaceChildren(message('Веб-архив не ответил вовремя'), retry());
+                    break;
+                case 'invalid':
+                    // Retrying an invalid domain gives the same answer (FR-012c)
+                    container.replaceChildren(message('Не удалось получить историю'));
+                    break;
+                default:
+                    container.replaceChildren(message('Не удалось получить историю'), retry());
+            }
+            return () => countdown?.cancel();
+        }
+
+        // A history block starts idle (or with a remembered result) and requests only on a click (FR-006, FR-018)
+        function createHistoryBlock(container, domain) {
+            let loader = null;
+            let disposeView = () => {};
+
+            function show(result) {
+                disposeView();
+                disposeView = renderHistory(container, result, {onRequest: request, onRetry: request});
+            }
+
+            function request() {
+                loader = loader || WaybackCore.createHistoryLoader(domain, {
+                    fetchFn: fetch.bind(window), now: () => Date.now(), ...timerDeps,
+                    limiter: waybackLimiter, memo: waybackMemo, onState: show,
+                });
+                loader.start();
+            }
+
+            show(waybackMemo.get(domain) || {kind: 'idle'});
+            return {
+                dispose() {
+                    loader?.cancel();
+                    disposeView();
+                },
+            };
+        }
+
+        function switchTab(tabId, event, param = null) {
+            document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(tabId.split('-')[0] === 'top' ? 'top' : tabId).classList.add('active');
+            
+            if (tabId === 'top') {
+                if (window.currentTopTab !== param) {
+                    window.currentTopTab = param;
+                    loadTop(param);
+                }
+            }
+        }
+
+        function toggleFilter(filter) {
+            if (filter === 'all') {
+                activeFilters = ['all'];
+            } else {
+                activeFilters = activeFilters.filter(f => f !== 'all');
+                if (activeFilters.includes(filter)) {
+                    activeFilters = activeFilters.filter(f => f !== filter);
+                } else {
+                    activeFilters.push(filter);
+                }
+                if (activeFilters.length === 0) activeFilters = ['all'];
+            }
+            
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                if (activeFilters.includes(btn.dataset.date)) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            
+            applyFilters();
+        }
+
+        function handleSearch(val) {
+            rawQuery = val.trim();
+            // Substring mode only: lowercasing a regex would turn \D into \d
+            searchQuery = rawQuery.toLowerCase();
+            onSearchChanged();
+        }
+
+        function hasRegexChars(query) {
+            return REGEX_CHARS.test(query);
+        }
+
+        function isRegexMode() {
+            return manualRegex || hasRegexChars(rawQuery);
+        }
+
+        function toggleRegex() {
+            // Special chars keep regex mode on: the button cannot switch it off
+            if (hasRegexChars(rawQuery)) return;
+            manualRegex = !manualRegex;
+            onSearchChanged();
+        }
+
+        function updateRegexToggle(regexMode) {
+            const btn = document.getElementById('regex-toggle');
+            const locked = hasRegexChars(rawQuery);
+            btn.classList.toggle('active', regexMode);
+            btn.classList.toggle('locked', locked);
+            btn.setAttribute('aria-pressed', String(regexMode));
+            btn.title = locked
+                ? 'Regex включён автоматически: в запросе есть спецсимволы'
+                : 'Регулярное выражение (синтаксис RE2)';
+        }
+
+        function showSearchError(message) {
+            // textContent only: detail echoes user input
+            const el = document.getElementById('search-error');
+            el.textContent = message;
+            el.hidden = false;
+            document.getElementById('search-input').classList.add('invalid');
+        }
+
+        function clearSearchError() {
+            const el = document.getElementById('search-error');
+            el.textContent = '';
+            el.hidden = true;
+            document.getElementById('search-input').classList.remove('invalid');
+        }
+
+        function resetRegexSession() {
+            clearTimeout(regexTimer);
+            requestSeq++;
+            regexResult = null;
+            clearSearchError();
+        }
+
+        function onSearchChanged() {
+            const regexMode = isRegexMode();
+            updateRegexToggle(regexMode);
+
+            if (!regexMode) {
+                if (wasRegexMode) resetRegexSession();
+                wasRegexMode = false;
+                applyFilters();
+                return;
+            }
+
+            wasRegexMode = true;
+            if (!rawQuery) {
+                // Empty query in regex mode: no request, full list
+                resetRegexSession();
+                applyFilters();
+                return;
+            }
+
+            clearTimeout(regexTimer);
+            const seq = ++requestSeq;
+            const pattern = rawQuery;
+            regexTimer = setTimeout(() => fetchRegex(pattern, seq), REGEX_DEBOUNCE_MS);
+        }
+
+        async function fetchRegex(pattern, seq) {
+            try {
+                const res = await fetch('/api/domains?regex=' + encodeURIComponent(pattern));
+                const data = await res.json().catch(() => null);
+                if (seq !== requestSeq) return;
+
+                if (res.ok) {
+                    regexResult = data;
+                    clearSearchError();
+                } else if (res.status === 400) {
+                    showSearchError((data && data.detail) || 'Некорректное регулярное выражение');
+                } else {
+                    showSearchError('Ошибка загрузки: HTTP ' + res.status);
+                }
+                applyFilters();
+            } catch (e) {
+                if (seq !== requestSeq) return;
+                showSearchError('Ошибка загрузки: ' + e.message);
+            }
+        }
+
+        function applyFilters() {
+            const useRegex = isRegexMode() && rawQuery !== '';
+            // Until the first valid regex response the base stays the full list
+            let temp = useRegex ? (regexResult ?? allDomains) : allDomains;
+
+            if (!activeFilters.includes('all')) {
+                const targetDates = activeFilters.map(f => {
+                    if(f==='today') return todayStr;
+                    if(f==='tomorrow') return tomorrowStr;
+                    if(f==='dayafter') return dayAfterStr;
+                });
+                temp = temp.filter(d => targetDates.includes(d.date));
+            }
+            
+            if (!useRegex && searchQuery) {
+                temp = temp.filter(d => d.domain.toLowerCase().includes(searchQuery));
+            }
+
+            filteredDomains = temp;
+            currentPage = 1;
+            document.getElementById('search-count').textContent =
+                'Найдено: ' + filteredDomains.length.toLocaleString('ru-RU');
+            renderDomains();
+        }
+
+        function renderDomains() {
+            const grid = document.getElementById('domain-grid');
+            grid.innerHTML = '';
+            const start = (currentPage - 1) * perPage;
+            const end = start + perPage;
+            const pageData = filteredDomains.slice(start, end);
+            
+            pageData.forEach(d => {
+                grid.appendChild(el('button', {className: 'domain-card', attrs: {type: 'button'},
+                                               on: {click: () => openDomainDialog(d)}}, [
+                    el('div', {className: 'd-name', text: d.domain}),
+                    el('div', {className: 'd-date', text: d.date}),
+                ]));
+            });
+            
+            const totalPages = Math.ceil(filteredDomains.length / perPage) || 1;
+            document.getElementById('page-input').value = currentPage;
+            document.getElementById('page-input').max = totalPages;
+            document.getElementById('total-pages').innerText = totalPages;
+            document.getElementById('btn-prev').disabled = currentPage === 1;
+            document.getElementById('btn-next').disabled = currentPage === totalPages;
+            
+            document.getElementById('pagination').style.display = filteredDomains.length > perPage ? 'flex' : 'none';
+        }
+
+        const domainDialog = document.getElementById('domain-dialog');
+
+        // Opening the card sends no requests: the archive link is plain navigation (FR-005, FR-006)
+        function openDomainDialog(d) {
+            document.getElementById('domain-dialog-title').textContent = d.domain;
+            document.getElementById('domain-dialog-date').textContent = 'Дата освобождения: ' + d.date;
+            domainDialog.querySelector('.wayback-link').href = WaybackCore.archiveUrl(d.domain);
+            const history = createHistoryBlock(domainDialog.querySelector('.wayback-history'), d.domain);
+            // `close` fires for every way of closing; each card disposes only its own block (FR-014)
+            domainDialog.addEventListener('close', () => history.dispose(), {once: true});
+            domainDialog.showModal();
+        }
+
+        // Esc closes the dialog natively; the button and a backdrop click close it here
+        domainDialog.querySelector('.domain-dialog-close').addEventListener('click', () => domainDialog.close());
+        domainDialog.addEventListener('click', event => {
+            if (event.target === domainDialog) domainDialog.close();
+        });
+
+        function jumpToPage() {
+            let val = parseInt(document.getElementById('page-input').value);
+            const totalPages = Math.ceil(filteredDomains.length / perPage) || 1;
+            if (val >= 1 && val <= totalPages) {
+                currentPage = val;
+                renderDomains();
+            } else {
+                document.getElementById('page-input').value = currentPage;
+            }
+        }
+
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderDomains();
+            }
+        }
+        function nextPage() {
+            if (currentPage * perPage < filteredDomains.length) {
+                currentPage++;
+                renderDomains();
+            }
+        }
+
+        async function loadAll() {
+            try {
+                const res = await fetch('/api/domains');
+                allDomains = await res.json();
+                document.getElementById('all-loader').style.display = 'none';
+                document.getElementById('date-filters').style.display = 'flex';
+                applyFilters();
+            } catch (e) {
+                document.getElementById('all-loader').innerText = 'Ошибка загрузки: ' + e.message;
+            }
+        }
+
+        // WHOIS cell: same four looks as before, every value goes in as text
+        function whoisView(raw) {
+            let w;
+            try {
+                w = JSON.parse(raw);
+            } catch (e) {
+                w = { raw };
+            }
+            // null, numbers and strings would break the field checks below
+            if (!w || typeof w !== 'object') w = { raw };
+
+            if (w.status && typeof w.status === 'string' && w.status.includes('Свободен')) {
+                return [el('span', {text: '✅ ' + w.status, style: {color: 'green', fontWeight: 'bold'}})];
+            }
+            if (w.error) {
+                return [el('span', {text: '❌ ' + w.error, style: {color: 'red'}})];
+            }
+            if (w.creation_date || w.registrar) {
+                return [
+                    el('strong', {text: 'Регистратор:'}), ' ' + (w.registrar || '?'), el('br'),
+                    el('strong', {text: 'Создан:'}), ' ' + (w.creation_date || '?'), el('br'),
+                    el('strong', {text: 'Истекает:'}), ' ' + (w.expiration_date || '?'), el('br'),
+                    el('small', {}, [el('strong', {text: 'Статус:'}), ' ' + (w.status || '?')]),
+                ];
+            }
+            return [el('pre', {text: JSON.stringify(w, null, 2), style: {fontSize: '0.75rem', overflowX: 'auto'}})];
+        }
+
+        let topHistoryBlocks = [];
+        let topRequestSeq = 0;  // a stale /api/top answer (seq !== topRequestSeq) is dropped
+
+        // Archive link right away; history only after the row's button is pressed (FR-017, FR-018)
+        function waybackCell(domain) {
+            const history = el('div', {className: 'wayback-history', attrs: {role: 'status', 'aria-live': 'polite'}});
+            topHistoryBlocks.push(createHistoryBlock(history, domain));
+            return el('td', {className: 'wayback-cell', style: {width: '18%'}}, [
+                el('a', {className: 'wayback-link', href: WaybackCore.archiveUrl(domain), text: 'Открыть в веб-архиве',
+                         attrs: {target: '_blank', rel: 'noopener noreferrer'}}),
+                history,
+            ]);
+        }
+
+        async function loadTop(dateType) {
+            // A new list stops the old rows' retries and countdowns (FR-019a)
+            topHistoryBlocks.forEach(block => block.dispose());
+            topHistoryBlocks = [];
+            const seq = ++topRequestSeq;
+            document.getElementById('top-loader').style.display = 'block';
+            document.getElementById('top-table').style.display = 'none';
+            const tbody = document.getElementById('top-body');
+            tbody.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/top?date_type=' + encodeURIComponent(dateType));
+                const data = await res.json();
+                if (seq !== topRequestSeq) return;
+
+                data.forEach(item => {
+                    tbody.appendChild(el('tr', {}, [
+                        el('td', {className: 'domain-name', style: {width: '22%', wordBreak: 'break-all'}}, [
+                            item.domain,
+                            el('br'),
+                            el('span', {text: 'Дроп: ' + item.date,
+                                        style: {fontSize: '0.8rem', fontWeight: 'normal', color: '#666'}}),
+                        ]),
+                        el('td', {text: item.reason, style: {width: '30%', fontSize: '0.9rem'}}),
+                        el('td', {style: {width: '30%'}}, whoisView(item.whois)),
+                        waybackCell(item.domain),
+                    ]));
+                });
+                document.getElementById('top-loader').style.display = 'none';
+                document.getElementById('top-table').style.display = 'table';
+            } catch (e) {
+                if (seq !== topRequestSeq) return;
+                document.getElementById('top-loader').innerText = 'Ошибка загрузки: ' + e.message;
+            }
+        }
+
+        loadAll();
+    </script>
+</body>
+</html>
