@@ -6,6 +6,8 @@ import logging
 import datetime
 from typing import List
 
+import re2
+
 from models import DomainItem
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,34 @@ def get_domains() -> List[DomainItem]:
     _CACHE["data"] = freeing_domains
     _CACHE["timestamp"] = time.time()
     return freeing_domains
+
+MAX_PATTERN_LENGTH = 256
+
+class InvalidPatternError(ValueError):
+    """Регулярное выражение невалидно, не поддерживается RE2 или слишком длинное."""
+
+def filter_domains(domains: List[DomainItem], pattern: str) -> List[DomainItem]:
+    """
+    Оставляет домены, в имени которых есть совпадение с выражением (в любой позиции).
+    Синтаксис RE2: линейное время, без обратных ссылок и lookaround. Регистр не учитывается.
+    """
+    if len(pattern) > MAX_PATTERN_LENGTH:
+        raise InvalidPatternError(
+            f"выражение длиннее {MAX_PATTERN_LENGTH} символов ({len(pattern)})"
+        )
+
+    options = re2.Options()
+    options.case_sensitive = False
+    options.log_errors = False
+    try:
+        compiled = re2.compile(pattern, options)
+    except re2.error as e:
+        reason = e.args[0] if e.args else ""
+        if isinstance(reason, bytes):
+            reason = reason.decode("utf-8", errors="replace")
+        raise InvalidPatternError(reason or "некорректное выражение") from e
+
+    return [d for d in domains if compiled.search(d.domain)]
 
 def evaluate_top_domains(domains: List[DomainItem]) -> List[DomainItem]:
     """

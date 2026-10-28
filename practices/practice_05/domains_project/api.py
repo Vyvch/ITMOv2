@@ -5,7 +5,7 @@ import datetime
 import time
 import os
 
-from services import get_domains, evaluate_top_domains
+from services import get_domains, evaluate_top_domains, filter_domains, InvalidPatternError
 from mcp_client import mcp_client
 from models import DomainItem
 
@@ -28,9 +28,14 @@ async def index(request: Request):
     return templates.TemplateResponse(request=request, name="index.html", context={"request": request})
 
 @app.get("/api/domains")
-def api_get_domains() -> list[dict]:
-    # Returns raw list for the frontend
+def api_get_domains(regex: str | None = None) -> list[dict]:
+    # Returns raw list for the frontend; optional RE2 filter by domain name
     domains = get_domains()
+    if regex:
+        try:
+            domains = filter_domains(domains, regex)
+        except InvalidPatternError as e:
+            raise HTTPException(status_code=400, detail=f"Некорректное регулярное выражение: {e}")
     return [d.dict() for d in domains]
 
 _LLM_CACHE = {}

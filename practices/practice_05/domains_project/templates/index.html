@@ -9,6 +9,7 @@
             --fg: #222222;
             --border: #DDDDDD;
             --accent: #0070f3;
+            --error: #D32F2F;
         }
         body {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -81,6 +82,63 @@
             background: var(--fg);
             color: var(--bg);
             border-color: var(--fg);
+        }
+
+        /* Search */
+        .search-box {
+            margin-left: auto;
+        }
+        .search-row {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .search-input {
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            outline: none;
+        }
+        .search-input.invalid {
+            border-color: var(--error);
+            box-shadow: 0 0 0 1px var(--error);
+        }
+        .regex-toggle {
+            padding: 0.35rem 0.6rem;
+            border: 1px solid var(--border);
+            background: #FFF;
+            border-radius: 6px;
+            font-family: 'SFMono-Regular', Consolas, monospace;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .regex-toggle.active {
+            background: var(--fg);
+            color: var(--bg);
+            border-color: var(--fg);
+        }
+        .regex-toggle.locked {
+            cursor: default;
+        }
+        .search-count {
+            font-size: 0.8rem;
+            color: #666;
+            white-space: nowrap;
+            min-width: 6.5em;
+        }
+        .search-error {
+            /* In normal flow: pushes the grid down instead of overlapping it.
+               width:0 + min-width:100% keeps a long message from widening the box. */
+            width: 0;
+            min-width: 100%;
+            box-sizing: border-box;
+            padding: 0 0.8rem;
+            margin-top: 0.25rem;
+            font-size: 0.75rem;
+            color: var(--error);
+            overflow-wrap: anywhere;
         }
         
         /* Grid Layout for Domains */
@@ -176,13 +234,20 @@
     </div>
 
     <div id="all" class="content active">
-        <div class="date-filters" id="date-filters" style="display:none; align-items: center;">
+        <div class="date-filters" id="date-filters" style="display:none; align-items: flex-start;">
             <button class="filter-btn active" data-date="all" onclick="toggleFilter('all')">Все дни</button>
             <button class="filter-btn" data-date="today" onclick="toggleFilter('today')">Сегодня</button>
             <button class="filter-btn" data-date="tomorrow" onclick="toggleFilter('tomorrow')">Завтра</button>
             <button class="filter-btn" data-date="dayafter" onclick="toggleFilter('dayafter')">Послезавтра</button>
             
-            <input type="text" id="search-input" placeholder="Поиск по имени..." oninput="handleSearch(this.value)" style="margin-left:auto; padding: 0.4rem 0.8rem; border-radius: 20px; border: 1px solid var(--border); outline: none;">
+            <div class="search-box">
+                <div class="search-row">
+                    <input type="text" id="search-input" class="search-input" placeholder="Поиск по имени..." oninput="handleSearch(this.value)" aria-describedby="search-error">
+                    <button type="button" id="regex-toggle" class="regex-toggle" onclick="toggleRegex()" aria-pressed="false" title="Регулярное выражение (синтаксис RE2)">.*</button>
+                    <span id="search-count" class="search-count" aria-live="polite"></span>
+                </div>
+                <div id="search-error" class="search-error" role="alert" hidden></div>
+            </div>
         </div>
         
         <div id="all-loader" class="loader">Получение списка доменов...</div>
@@ -216,7 +281,17 @@
         let currentPage = 1;
         const perPage = 100;
         let searchQuery = '';
-        
+
+        // Regex search (server-side, RE2)
+        const REGEX_CHARS = /[\^$*+?()[\]{}|\\]/;
+        const REGEX_DEBOUNCE_MS = 300;
+        let rawQuery = '';
+        let manualRegex = false;
+        let wasRegexMode = false;
+        let regexResult = null;   // last valid regex result of the current regex session
+        let requestSeq = 0;       // stale responses (seq !== requestSeq) are dropped
+        let regexTimer = null;
+
         function getLocalDateString(d) {
             const tzOffset = d.getTimezoneOffset() * 60000;
             return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
@@ -272,13 +347,111 @@
         }
 
         function handleSearch(val) {
-            searchQuery = val.toLowerCase().trim();
-            applyFilters();
+            rawQuery = val.trim();
+            // Substring mode only: lowercasing a regex would turn \D into \d
+            searchQuery = rawQuery.toLowerCase();
+            onSearchChanged();
+        }
+
+        function hasRegexChars(query) {
+            return REGEX_CHARS.test(query);
+        }
+
+        function isRegexMode() {
+            return manualRegex || hasRegexChars(rawQuery);
+        }
+
+        function toggleRegex() {
+            // Special chars keep regex mode on: the button cannot switch it off
+            if (hasRegexChars(rawQuery)) return;
+            manualRegex = !manualRegex;
+            onSearchChanged();
+        }
+
+        function updateRegexToggle(regexMode) {
+            const btn = document.getElementById('regex-toggle');
+            const locked = hasRegexChars(rawQuery);
+            btn.classList.toggle('active', regexMode);
+            btn.classList.toggle('locked', locked);
+            btn.setAttribute('aria-pressed', String(regexMode));
+            btn.title = locked
+                ? 'Regex включён автоматически: в запросе есть спецсимволы'
+                : 'Регулярное выражение (синтаксис RE2)';
+        }
+
+        function showSearchError(message) {
+            // textContent only: detail echoes user input
+            const el = document.getElementById('search-error');
+            el.textContent = message;
+            el.hidden = false;
+            document.getElementById('search-input').classList.add('invalid');
+        }
+
+        function clearSearchError() {
+            const el = document.getElementById('search-error');
+            el.textContent = '';
+            el.hidden = true;
+            document.getElementById('search-input').classList.remove('invalid');
+        }
+
+        function resetRegexSession() {
+            clearTimeout(regexTimer);
+            requestSeq++;
+            regexResult = null;
+            clearSearchError();
+        }
+
+        function onSearchChanged() {
+            const regexMode = isRegexMode();
+            updateRegexToggle(regexMode);
+
+            if (!regexMode) {
+                if (wasRegexMode) resetRegexSession();
+                wasRegexMode = false;
+                applyFilters();
+                return;
+            }
+
+            wasRegexMode = true;
+            if (!rawQuery) {
+                // Empty query in regex mode: no request, full list
+                resetRegexSession();
+                applyFilters();
+                return;
+            }
+
+            clearTimeout(regexTimer);
+            const seq = ++requestSeq;
+            const pattern = rawQuery;
+            regexTimer = setTimeout(() => fetchRegex(pattern, seq), REGEX_DEBOUNCE_MS);
+        }
+
+        async function fetchRegex(pattern, seq) {
+            try {
+                const res = await fetch('/api/domains?regex=' + encodeURIComponent(pattern));
+                const data = await res.json().catch(() => null);
+                if (seq !== requestSeq) return;
+
+                if (res.ok) {
+                    regexResult = data;
+                    clearSearchError();
+                } else if (res.status === 400) {
+                    showSearchError((data && data.detail) || 'Некорректное регулярное выражение');
+                } else {
+                    showSearchError('Ошибка загрузки: HTTP ' + res.status);
+                }
+                applyFilters();
+            } catch (e) {
+                if (seq !== requestSeq) return;
+                showSearchError('Ошибка загрузки: ' + e.message);
+            }
         }
 
         function applyFilters() {
-            let temp = allDomains;
-            
+            const useRegex = isRegexMode() && rawQuery !== '';
+            // Until the first valid regex response the base stays the full list
+            let temp = useRegex ? (regexResult ?? allDomains) : allDomains;
+
             if (!activeFilters.includes('all')) {
                 const targetDates = activeFilters.map(f => {
                     if(f==='today') return todayStr;
@@ -288,12 +461,14 @@
                 temp = temp.filter(d => targetDates.includes(d.date));
             }
             
-            if (searchQuery) {
+            if (!useRegex && searchQuery) {
                 temp = temp.filter(d => d.domain.toLowerCase().includes(searchQuery));
             }
-            
+
             filteredDomains = temp;
             currentPage = 1;
+            document.getElementById('search-count').textContent =
+                'Найдено: ' + filteredDomains.length.toLocaleString('ru-RU');
             renderDomains();
         }
 
