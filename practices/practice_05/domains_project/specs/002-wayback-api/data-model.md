@@ -58,7 +58,7 @@
 
 | Поле | По умолчанию | Требование |
 |------|--------------|------------|
-| `request_interval` | 1.0 с | FR-017 |
+| `request_interval` | 3.0 с | FR-017 (20 обращений в минуту; при 1 с архив блокировал — `capture.md`, research R12) |
 | `response_deadline` | 15.0 с | FR-019 |
 | `archive_timeout` | 30.0 с | FR-021 (больше `response_deadline`: медленное обращение дорабатывает в фоне) |
 | `call_estimate` | 5.0 с | FR-019a (оценка длительности одного обращения для `retry_after`; замер — `capture.md`) |

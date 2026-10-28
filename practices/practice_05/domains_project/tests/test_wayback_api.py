@@ -124,6 +124,10 @@ class TestWaybackEndpointUS1(WaybackApiTestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(first.json()["snapshot_count"], 194)
+        # US3: второй ответ — из кэша, архив вызван один раз
+        self.assertFalse(first.json()["cached"])
+        self.assertTrue(second.json()["cached"])
+        self.assertEqual(fetcher.calls, 1)
 
     def test_c13_shutdown_stops_worker(self):
         """Обработчик shutdown приложения останавливает работника сервиса."""
@@ -134,6 +138,67 @@ class TestWaybackEndpointUS1(WaybackApiTestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertFalse(service.worker.done())
         self.assertTrue(service.worker.done())
+
+
+class TestWaybackEndpointErrors(WaybackApiTestCase):
+    """Ошибки архива и формат ответов (C6–C9, C12)."""
+
+    def get_with(self, **mock_kwargs):
+        with patch("api.get_wayback_history", new_callable=AsyncMock, **mock_kwargs):
+            return self.client.get("/api/wayback", params={"domain": "example.ru"})
+
+    def test_c6_overloaded(self):
+        response = self.get_with(side_effect=wayback.ArchiveOverloaded(retry_after=60))
+        self.assertEqual(response.status_code, 503)
+        self.assert_error_body(response, "archive_overloaded")
+        self.assertEqual(response.headers["retry-after"], "60")
+
+    def test_c7_timeout(self):
+        response = self.get_with(side_effect=wayback.ArchiveTimeout())
+        self.assertEqual(response.status_code, 504)
+        self.assert_error_body(response, "archive_timeout")
+        self.assertNotIn("retry-after", response.headers)
+
+    def test_c8_archive_error(self):
+        response = self.get_with(side_effect=wayback.ArchiveUnavailable())
+        self.assertEqual(response.status_code, 502)
+        self.assert_error_body(response, "archive_error")
+        self.assertNotIn("Exception", response.text)
+
+    def test_c12_always_json(self):
+        outcomes = {
+            "ok": {"return_value": make_history()},
+            "empty": {"return_value": make_history(count=0)},
+            "pending": {"side_effect": wayback.HistoryPending("example.ru", 5)},
+            "invalid": {"side_effect": wayback.InvalidDomain()},
+            "error": {"side_effect": wayback.ArchiveUnavailable()},
+            "overloaded": {"side_effect": wayback.ArchiveOverloaded(retry_after=3)},
+            "timeout": {"side_effect": wayback.ArchiveTimeout()},
+        }
+        for label, kwargs in outcomes.items():
+            with self.subTest(label=label):
+                response = self.get_with(**kwargs)
+                self.assertTrue(response.headers["content-type"].startswith("application/json"))
+                response.json()
+        self.real_service()
+        response = self.client.get("/api/wayback")
+        self.assertTrue(response.headers["content-type"].startswith("application/json"))
+        response.json()
+
+
+class TestWaybackEndpointPending(WaybackApiTestCase):
+    """Ответ 202 «в очереди» (C3)."""
+
+    def test_c3_pending(self):
+        for domain, retry_after in [("example.ru", 8), ("пример.рф", 3)]:
+            with self.subTest(domain=domain):
+                with patch("api.get_wayback_history", new_callable=AsyncMock,
+                           side_effect=wayback.HistoryPending(domain, retry_after)):
+                    response = self.client.get("/api/wayback", params={"domain": domain})
+                self.assertEqual(response.status_code, 202)
+                self.assertEqual(response.json(), {"domain": domain, "status": "pending",
+                                                   "retry_after": retry_after})
+                self.assertEqual(response.headers["retry-after"], str(retry_after))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,10 @@
 """
 import asyncio
 import datetime
+import json
 import logging
+import math
+import os
 import re
 import time
 from collections import deque
@@ -33,13 +36,14 @@ ARCHIVE_RETRY_AFTER_MAX = 600
 class WaybackSettings:
     """Настройки очереди, кэша и обращений к архиву (значения по умолчанию — из спецификации)."""
 
-    request_interval: float = 1.0
+    request_interval: float = 3.0  # 20 обращений в минуту: при 1 с архив блокировал (capture.md)
     response_deadline: float = 15.0
-    archive_timeout: float = 10.0
+    archive_timeout: float = 30.0
     max_queue: int = 100
     cache_ttl: float = 604800
     cache_max_entries: int = 10000
     max_rows: int = 100000
+    call_estimate: float = 5.0  # оценка одного обращения для retry_after (FR-019a)
     pause_default: float = 60
     pause_max: float = 600
 
@@ -97,6 +101,10 @@ class ArchiveTimeout(WaybackError):
     code = "archive_timeout"
     status = 504
     default_detail = "Веб-архив не ответил вовремя"
+
+
+class ArchiveRateLimited(ArchiveOverloaded):
+    """Архив ответил «429»: очередь встаёт на паузу, задача может вернуться в начало очереди."""
 
 
 class ArchiveUnavailable(WaybackError):
@@ -215,6 +223,36 @@ def make_cdx_fetcher(
     return fetch
 
 
+def _header(headers: Mapping[str, str], name: str) -> str | None:
+    """Заголовок без учёта регистра (httpx.Headers или обычный словарь)."""
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
+
+def _is_seconds(value: str) -> bool:
+    # isdigit() пропускает «²» и арабские цифры, на которых int() падает
+    return value.isascii() and value.isdigit()
+
+
+def pause_duration(
+    retry_after: str | None, previous_pause: float | None, settings: WaybackSettings
+) -> float:
+    """
+    Длительность паузы очереди после «429» (FR-022).
+    Retry-After архива в секундах главнее: берётся как есть (1–600 с), без удвоения.
+    Без заголовка (HTTP-дата не разбирается): удвоение предыдущей паузы, если предыдущий
+    ответ архива тоже был «429» (previous_pause), иначе pause_default; предел — pause_max.
+    """
+    value = (retry_after or "").strip()
+    if _is_seconds(value):
+        return float(min(max(int(value), ARCHIVE_RETRY_AFTER_MIN), ARCHIVE_RETRY_AFTER_MAX))
+    if previous_pause is not None:
+        return min(previous_pause * 2, settings.pause_max)
+    return settings.pause_default
+
+
 def _utc_iso(unix_time: float) -> str:
     moment = datetime.datetime.fromtimestamp(unix_time, datetime.timezone.utc)
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -228,6 +266,28 @@ class Job:
     future: "asyncio.Future[WaybackHistory]"
     enqueued_at: float
     requeued_after_429: bool = False
+
+
+CACHE_FILE_VERSION = 1
+
+
+@dataclass
+class CacheEntry:
+    """Запись кэша: история (с cached=False) и Unix-время получения из архива."""
+
+    history: WaybackHistory
+    checked_at: float
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    """Запись через временный файл и os.replace; ошибка записи не роняет сервис."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("Кэш веб-архива не сохранён в %s: %s", path, exc)
 
 
 def _consume_exception(future: asyncio.Future) -> None:
@@ -272,21 +332,26 @@ class WaybackService:
         self._fetcher = fetcher
         self._clock = clock
         self._cache_path = cache_path
+        self.cache: dict[str, CacheEntry] = {}
         self.loop: asyncio.AbstractEventLoop | None = None
         self.wakeup: asyncio.Event | None = None
         self.worker: asyncio.Task | None = None
+        self.last_start = 0.0
+        self.pause_until = 0.0
+        self.last_pause: float | None = None
         self._reset_runtime()
+        self._load_cache()
 
     def _reset_runtime(self) -> None:
-        """Сбрасывает состояние выполнения (очередь, паузу); кэш не трогает."""
+        """
+        Сбрасывает очередь и объекты asyncio. Кэш, пауза после «429» и время последнего
+        обращения сохраняются: это не asyncio-объекты, а лимиты архива от смены цикла не зависят.
+        """
         _cancel_worker(getattr(self, "worker", None))
         self.pending: deque[Job] = deque()
         self.jobs: dict[str, Job] = {}
         self.current: Job | None = None
         self.current_started = 0.0
-        self.last_start = 0.0
-        self.pause_until = 0.0
-        self.last_pause: float | None = None
         self.loop = None
         self.wakeup = None
         self.worker = None
@@ -301,16 +366,67 @@ class WaybackService:
             self.loop = loop
             self.wakeup = asyncio.Event()
         if self.worker is None or self.worker.done():
+            # Работник умер посреди задачи: её Future никто не завершит — вернуть в начало очереди
+            orphans = [job for job in self.jobs.values()
+                       if job not in self.pending and not job.future.done()]
+            self.pending.extendleft(reversed(orphans))
+            self.current = None
             self.worker = loop.create_task(self._worker_loop())
 
     async def get_history(self, domain: str) -> WaybackHistory:
-        """Возвращает историю домена; ждёт результата задачи очереди."""
+        """
+        История домена не позже response_deadline (FR-019). Не готова к сроку — HistoryPending
+        (задача продолжается в фоне); пауза после «429» или полная очередь — ArchiveOverloaded.
+        """
+        started = time.monotonic()
         # Проверка имени — до очереди: некорректный домен не доходит до архива (FR-003)
         name = normalize_domain(domain)
+        # Свежая запись кэша — без очереди и без обращения к архиву, даже во время паузы (FR-014)
+        cached = self._cache_get(name.display)
+        if cached is not None:
+            return cached
         self._ensure_runtime()
-        job = self.jobs.get(name.display) or self._enqueue(name)
-        # shield: отмена клиента не отменяет задачу, её результат нужен остальным
-        return await asyncio.shield(job.future)
+        job = self.jobs.get(name.display)
+        pause_left = self.pause_until - time.monotonic()
+        if pause_left > 0:
+            # Пауза после «429»: задачу ставим, клиенту сразу 503 (FR-023)
+            if job is None and len(self.pending) < self.settings.max_queue:
+                self._enqueue(name)
+            raise ArchiveOverloaded(retry_after=max(1, math.ceil(pause_left)))
+        if job is None:
+            if len(self.pending) >= self.settings.max_queue:
+                raise ArchiveOverloaded(
+                    retry_after=max(1, math.ceil(self.settings.request_interval)))
+            job = self._enqueue(name)
+        remaining = self.settings.response_deadline - (time.monotonic() - started)
+        if self._lower_bound(job) > remaining:
+            raise HistoryPending(name.display, self._retry_hint(job))
+        # asyncio.wait не отменяет Future ни по сроку, ни при отмене клиента — задача
+        # дорабатывает в фоне; shield здесь не нужен (и в 3.14 шумит в журнале после 202)
+        future = job.future
+        done, _ = await asyncio.wait({future}, timeout=max(remaining, 0))
+        if not done:
+            raise HistoryPending(name.display, self._retry_hint(job))
+        return future.result()
+
+    def _lower_bound(self, job: Job) -> float:
+        """Точно известная часть ожидания: остаток паузы и интервалы перед задачей (R5)."""
+        wait = max(0.0, self.pause_until - time.monotonic())
+        if job is not self.current and job in self.pending:
+            wait += self.pending.index(job) * self.settings.request_interval
+        return wait
+
+    def _retry_hint(self, job: Job) -> int:
+        """Подсказка retry_after: длительность обращений — по call_estimate, не по таймауту (R5)."""
+        now = time.monotonic()
+        estimate = self.settings.call_estimate
+        pause_left = max(0.0, self.pause_until - now)
+        current_left = max(0.0, estimate - (now - self.current_started)) if self.current else 0.0
+        if job is self.current:
+            return max(1, math.ceil(pause_left + current_left))
+        position = self.pending.index(job) if job in self.pending else 0
+        step = max(self.settings.request_interval, estimate)
+        return max(1, math.ceil(pause_left + current_left + (position + 1) * step))
 
     def _enqueue(self, name: DomainName) -> Job:
         future = self.loop.create_future()
@@ -332,12 +448,97 @@ class WaybackService:
             self.current_started = time.monotonic()
             try:
                 result = await self._execute(job)
+            except ArchiveRateLimited as exc:
+                logger.info("Wayback %s: %s", job.domain.display, exc.code)
+                self._requeue_after_429(job, exc)
             except WaybackError as exc:
+                logger.info("Wayback %s: %s", job.domain.display, exc.code)
                 self._finish(job, error=exc)
+            except Exception:
+                # Работник не должен падать: непредвиденная ошибка — archive_error (FR-026)
+                logger.exception("Wayback %s: непредвиденная ошибка", job.domain.display)
+                self._finish(job, error=ArchiveUnavailable())
             else:
+                outcome = "ok" if result.snapshot_count else "empty"
+                logger.info("Wayback %s: %s, снимков %d", job.domain.display, outcome,
+                            result.snapshot_count)
+                try:
+                    self._cache_put(job.domain.display, result)
+                    await self._save_cache()
+                except Exception:
+                    # Сбой кэша не должен ронять работника: клиенты всё равно получат результат
+                    logger.exception("Кэш веб-архива не обновлён")
                 self._finish(job, result=result)
             finally:
                 self.current = None
+
+    def _requeue_after_429(self, job: Job, error: ArchiveRateLimited) -> None:
+        """Ожидающим — 503; задача один раз возвращается в начало очереди (FR-022)."""
+        if job.requeued_after_429:
+            self._finish(job, error=error)
+            return
+        if not job.future.done():
+            job.future.set_exception(error)
+        job.requeued_after_429 = True
+        job.future = self.loop.create_future()
+        job.future.add_done_callback(_consume_exception)
+        self.pending.appendleft(job)
+
+    def _cache_get(self, key: str) -> WaybackHistory | None:
+        entry = self.cache.get(key)
+        if entry is None:
+            return None
+        if self._clock() - entry.checked_at >= self.settings.cache_ttl:
+            del self.cache[key]
+            return None
+        return entry.history.model_copy(update={"cached": True})
+
+    def _cache_put(self, key: str, history: WaybackHistory) -> None:
+        """Успех и «нет снимков» кэшируются; ошибки сюда не попадают (FR-012, FR-013)."""
+        self.cache[key] = CacheEntry(history.model_copy(update={"cached": False}), self._clock())
+        self._evict()
+
+    def _evict(self) -> None:
+        """Не более cache_max_entries записей: вытесняются самые старые (FR-016)."""
+        while len(self.cache) > self.settings.cache_max_entries:
+            oldest = min(self.cache, key=lambda name: self.cache[name].checked_at)
+            del self.cache[oldest]
+
+    def _load_cache(self) -> None:
+        """Читает файл кэша; битый файл или запись не мешают запуску (FR-015)."""
+        if self._cache_path is None or not self._cache_path.exists():
+            return
+        try:
+            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Кэш веб-архива не прочитан (%s): начинаем с пустого", exc)
+            return
+        if not isinstance(data, dict) or data.get("version") != CACHE_FILE_VERSION:
+            logger.warning("Кэш веб-архива: неизвестный формат файла — начинаем с пустого")
+            return
+        now = self._clock()
+        for key, raw in (data.get("entries") or {}).items():
+            try:
+                checked_at = float(raw["checked_at"])
+                history = WaybackHistory.model_validate(raw["history"])
+            except (KeyError, TypeError, ValueError) as exc:
+                logger.warning("Кэш веб-архива: запись %r пропущена (%s)", key, exc)
+                continue
+            if now - checked_at < self.settings.cache_ttl:
+                self.cache[key] = CacheEntry(history, checked_at)
+        self._evict()
+
+    async def _save_cache(self) -> None:
+        if self._cache_path is None:
+            return
+        data = {
+            "version": CACHE_FILE_VERSION,
+            "entries": {
+                key: {"checked_at": entry.checked_at, "history": entry.history.model_dump()}
+                for key, entry in self.cache.items()
+            },
+        }
+        await asyncio.to_thread(_write_json_atomic, self._cache_path, data)
 
     def _finish(
         self, job: Job, result: WaybackHistory | None = None, error: Exception | None = None
@@ -372,7 +573,57 @@ class WaybackService:
         return self._build_history(name, rows, last_row)
 
     async def _call_archive(self, ascii_domain: str, limit: int) -> FetchResult:
-        return await self._fetcher(ascii_domain, limit)
+        """
+        Одно обращение к архиву: не чаще request_interval и не во время паузы (FR-017, FR-022),
+        с общим таймаутом (FR-021); сетевые ошибки и «429» превращаются в WaybackError.
+        Адреса и тексты исключений — только в журнал.
+        """
+        await self._throttle()
+        started = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                self._fetcher(ascii_domain, limit), self.settings.archive_timeout
+            )
+        except (asyncio.TimeoutError, httpx.TimeoutException):
+            self.last_pause = None
+            self._log_call(ascii_domain, limit, started, "таймаут", logging.ERROR)
+            raise ArchiveTimeout()
+        except httpx.RequestError as exc:
+            self.last_pause = None
+            self._log_call(ascii_domain, limit, started, f"сетевая ошибка {exc!r}", logging.ERROR)
+            raise ArchiveUnavailable()
+        blocked = result.status == 403 and any(m in result.text for m in _BLOCKED_MARKERS)
+        level = logging.INFO if result.status == 200 or blocked else logging.ERROR
+        self._log_call(ascii_domain, limit, started, f"HTTP {result.status}", level)
+        if result.status == 429:
+            raise self._pause_after_429(result.headers)
+        self.last_pause = None  # серия «429» прервана
+        return result
+
+    async def _throttle(self) -> None:
+        delay = max(self.last_start + self.settings.request_interval, self.pause_until)
+        delay -= time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        self.last_start = self.current_started = time.monotonic()
+
+    def _pause_after_429(self, headers: Mapping[str, str]) -> ArchiveRateLimited:
+        retry_after = _header(headers, "Retry-After")
+        duration = pause_duration(retry_after, self.last_pause, self.settings)
+        if _is_seconds((retry_after or "").strip()):
+            source = "retry-after"
+        else:
+            source = "doubled" if self.last_pause is not None else "default"
+        self.last_pause = duration
+        self.pause_until = time.monotonic() + duration
+        logger.warning("Wayback: архив ответил 429 — пауза очереди %.2f с (%s)", duration, source)
+        return ArchiveRateLimited(retry_after=max(1, math.ceil(duration)))
+
+    @staticmethod
+    def _log_call(ascii_domain: str, limit: int, started: float, outcome: str, level: int) -> None:
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        logger.log(level, "Wayback CDX %s (limit=%s): %s за %d мс",
+                   ascii_domain, limit, outcome, elapsed_ms)
 
     def _build_history(
         self, name: DomainName, rows: list[tuple[str, str]], last_row: tuple[str, str] | None
@@ -394,12 +645,21 @@ class WaybackService:
 _service: WaybackService | None = None
 
 
+def _default_cache_path() -> Path:
+    """WAYBACK_CACHE_PATH или <каталог проекта>/.cache/wayback_cache.json (вне git)."""
+    configured = os.environ.get("WAYBACK_CACHE_PATH")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent / ".cache" / "wayback_cache.json"
+
+
 def get_service() -> WaybackService:
     """Модульный сервис; создаётся лениво при первом обращении."""
     global _service
     if _service is None:
         settings = WaybackSettings()
-        _service = WaybackService(settings, make_cdx_fetcher(settings.archive_timeout))
+        _service = WaybackService(settings, make_cdx_fetcher(settings.archive_timeout),
+                                  cache_path=_default_cache_path())
     return _service
 
 
