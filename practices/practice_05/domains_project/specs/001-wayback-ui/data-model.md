@@ -1,0 +1,93 @@
+# Data Model: История домена в веб-архиве (интерфейс)
+
+Все сущности живут только в памяти страницы (JS-объекты), до её перезагрузки. Формат входных
+данных от сервера — `specs/wayback-contract.md`; здесь — как интерфейс их представляет.
+
+## WaybackResult — нормализованный результат запроса
+
+Результат `WaybackCore.classifyResponse(...)` (R5). Поле `kind` определяет остальные поля.
+
+| `kind` | Откуда | Поля | Итоговое? |
+|--------|--------|------|-----------|
+| `success` | 200, `snapshot_count > 0` | `count: number`, `truncated: boolean`, `first: Snapshot \| null`, `last: Snapshot \| null` | да |
+| `empty` | 200, `snapshot_count = 0` | — | да |
+| `pending` | 202 | `retryAfterSec: number` (≥ 1; тело `retry_after`, иначе заголовок, иначе 1) | нет |
+| `overloaded` | 503 + `code=archive_overloaded` | `retryAfterSec: number \| null` (заголовок `Retry-After`; некорректный → `null`) | да |
+| `timeout` | 504 + `code=archive_timeout`; таймаут 20 с; дедлайн 2 мин | `reason: 'server' \| 'request' \| 'deadline'` | да |
+| `invalid` | 400 + `code=invalid_domain` | — | да |
+| `failed` | 502, неизвестный статус/`code`, не JSON, 200 без числового `snapshot_count`, сетевая ошибка | — | да |
+
+Правила валидации:
+- `count` — целое ≥ 0; иначе ответ → `failed`.
+- `truncated` — строго `count_truncated === true`.
+- `first`/`last` — объект с `date` и `url`, иначе `null`.
+
+## Snapshot
+
+| Поле | Тип | Правило |
+|------|-----|---------|
+| `dateText` | string | `ГГГГ-ММ-ДД` → `ДД.ММ.ГГГГ`; не по шаблону → `—` (FR-009a) |
+| `href` | string \| null | только `https:` и хост `web.archive.org` (FR-010), иначе `null` — показывается только дата |
+
+## HistoryBlockState — состояние блока истории (FR-007)
+
+Видимое состояние одного блока для пары «домен + экран».
+
+| Состояние | Текст | Кнопка | Из `WaybackResult` |
+|-----------|-------|--------|--------------------|
+| `idle` | — | «Запросить историю» (только карточка домена) | — |
+| `loading` | «Загрузка истории…» | недоступна | старт / `pending` |
+| `success` | «Снимков: N», «Первый: …», «Последний: …» | — | `success` |
+| `empty` | «Нет снимков в веб-архиве» | — | `empty` |
+| `error-overloaded` | «Веб-архив перегружен, попробуйте позже» | «Повторить через N с» → «Повторить» | `overloaded` |
+| `error-timeout` | «Веб-архив не ответил вовремя» | «Повторить» | `timeout` |
+| `error-failed` | «Не удалось получить историю» | «Повторить» | `failed` |
+| `error-invalid` | «Не удалось получить историю» | нет | `invalid` |
+
+### Переходы
+
+```text
+idle ──(«Запросить историю»)──▶ loading
+loading ──pending──▶ loading            (повтор через retryAfterSec, если успевает до дедлайна)
+loading ──success / empty──▶ success / empty      (результат запоминается в SessionMemo)
+loading ──overloaded──▶ error-overloaded (отсчёт retryAfterSec; null → кнопка сразу доступна)
+loading ──timeout (сервер | 20 с на запрос | 2 мин дедлайн)──▶ error-timeout
+loading ──failed──▶ error-failed
+loading ──invalid──▶ error-invalid       (финал до перезагрузки или закрытия карточки)
+error-overloaded / error-timeout / error-failed ──(«Повторить»)──▶ loading (новый дедлайн)
+любое ──(закрытие карточки / смена списка Топ-20)──▶ cancel: ответы старого поколения игнорируются
+```
+
+Для Топ-20 начальное состояние — `loading` (FR-018), `idle` не бывает.
+
+## HistoryAttempt — одна попытка получения истории
+
+| Поле | Смысл |
+|------|-------|
+| `domain` | имя как в списке (кириллица для `.рф`) |
+| `startedAt` | время старта попытки; дедлайн = `startedAt + 120 000 мс` |
+| `generation` | номер поколения; растёт при `cancel()` и новом `start()` |
+| `abort` | контроллер прерывания текущего запроса |
+| `timers` | таймеры повтора, дедлайна, таймаута запроса — все снимаются в `cancel()` |
+
+## SessionMemo — запомненные результаты
+
+`Map<string, WaybackResult>`: ключ — `domain.toLowerCase()`, значения только `success`/`empty`
+(FR-015). Общий для карточки домена и Топ-20. Не сохраняется между перезагрузками.
+
+## RequestLimiter — ограничитель параллельности
+
+Не более 4 одновременных запросов `/api/wayback` на страницу (R9); очередь FIFO. Отменённая
+попытка, ещё стоящая в очереди, из неё удаляется. Слот занимается на один запрос и освобождается
+сразу после ответа или таймаута; ожидание повтора после `202` слот не держит.
+
+## Countdown — обратный отсчёт до «Повторить»
+
+Создаётся в состоянии `error-overloaded` при `retryAfterSec ≥ 1`: `onTick(N)` сразу, затем раз
+в 1000 мс до `onTick(0)`, после чего кнопка доступна. `cancel()` при закрытии карточки, смене списка
+Топ-20 или новой попытке. При `retryAfterSec: null` отсчёт не создаётся.
+
+## DomainItem (существующая)
+
+`{ domain, date, reason, whois }` из `/api/domains` и `/api/top` — без изменений; в интерфейсе
+все поля выводятся как текст.
