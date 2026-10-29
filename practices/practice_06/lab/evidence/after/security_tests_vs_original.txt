@@ -1,0 +1,201 @@
+test_internal_error_does_not_leak_exception (test_security.HttpErrorTest.test_internal_error_does_not_leak_exception) ... FAIL
+test_debug_logs_protected_and_scrubbed (test_security.SecurityTest.test_debug_logs_protected_and_scrubbed) ... FAIL
+test_execute_customer_cannot_export_profiles (test_security.SecurityTest.test_execute_customer_cannot_export_profiles) ... FAIL
+test_execute_forbids_delete_tree_even_when_forced (test_security.SecurityTest.test_execute_forbids_delete_tree_even_when_forced) ... FAIL
+test_execute_read_file_cannot_reach_secret (test_security.SecurityTest.test_execute_read_file_cannot_reach_secret) ... FAIL
+test_execute_requires_token (test_security.SecurityTest.test_execute_requires_token) ... FAIL
+test_fake_role_header_does_not_grant_export (test_security.SecurityTest.test_fake_role_header_does_not_grant_export) ... FAIL
+test_files_cannot_reach_operator_secret (test_security.SecurityTest.test_files_cannot_reach_operator_secret) ... FAIL
+test_files_scoped_to_owner (test_security.SecurityTest.test_files_scoped_to_owner) ... FAIL
+test_orders_require_token_and_are_scoped (test_security.SecurityTest.test_orders_require_token_and_are_scoped) ... FAIL
+test_price_taken_from_catalog (test_security.SecurityTest.test_price_taken_from_catalog) ... FAIL
+test_profile_requires_token (test_security.SecurityTest.test_profile_requires_token) ... FAIL
+test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) ... 
+  test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=2') ... FAIL
+  test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=0 OR 1=1') ... FAIL
+  test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=') ... ERROR
+test_review_html_is_escaped (test_security.SecurityTest.test_review_html_is_escaped) ... FAIL
+test_search_injection_does_not_leak_others (test_security.SecurityTest.test_search_injection_does_not_leak_others) ... FAIL
+
+======================================================================
+ERROR: test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 40, in test_profile_returns_only_own_ignoring_id_and_injection
+    status, rows = self.request("GET", path, headers=auth)
+                   ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 25, in request
+    return self.shop.dispatch(method, path, body or {}, headers or {})
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\service.py", line 57, in dispatch
+    return 200, self.rows(f"SELECT * FROM profiles WHERE id = {query.get('id', '1')}")
+                ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\service.py", line 39, in rows
+    return [dict(row) for row in self.db.execute(query)]
+                                 ~~~~~~~~~~~~~~~^^^^^^^
+sqlite3.OperationalError: incomplete input
+
+======================================================================
+FAIL: test_internal_error_does_not_leak_exception (test_security.HttpErrorTest.test_internal_error_does_not_leak_exception)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 166, in test_internal_error_does_not_leak_exception
+    self.assertEqual(json.loads(text), {"error": "internal error"})
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'error': "'list' object has no attribute 'get'", 'type': 'AttributeError'} != {'error': 'internal error'}
+- {'error': "'list' object has no attribute 'get'", 'type': 'AttributeError'}
++ {'error': 'internal error'}
+
+======================================================================
+FAIL: test_debug_logs_protected_and_scrubbed (test_security.SecurityTest.test_debug_logs_protected_and_scrubbed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 127, in test_debug_logs_protected_and_scrubbed
+    self.assertEqual(self.request("GET", "/debug/logs")[0], 403)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 200 != 403
+
+======================================================================
+FAIL: test_execute_customer_cannot_export_profiles (test_security.SecurityTest.test_execute_customer_cannot_export_profiles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 115, in test_execute_customer_cannot_export_profiles
+    self.assertEqual(status, 403)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 200 != 403
+
+======================================================================
+FAIL: test_execute_forbids_delete_tree_even_when_forced (test_security.SecurityTest.test_execute_forbids_delete_tree_even_when_forced)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 105, in test_execute_forbids_delete_tree_even_when_forced
+    self.assertEqual(status, 403)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 200 != 403
+
+======================================================================
+FAIL: test_execute_read_file_cannot_reach_secret (test_security.SecurityTest.test_execute_read_file_cannot_reach_secret)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 122, in test_execute_read_file_cannot_reach_secret
+    self.assertNotEqual(status, 200)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 200 == 200
+
+======================================================================
+FAIL: test_execute_requires_token (test_security.SecurityTest.test_execute_requires_token)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 99, in test_execute_requires_token
+    self.assertEqual(status, 401)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 200 != 401
+
+======================================================================
+FAIL: test_fake_role_header_does_not_grant_export (test_security.SecurityTest.test_fake_role_header_does_not_grant_export)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 62, in test_fake_role_header_does_not_grant_export
+    self.assertEqual(self.request("GET", "/admin/export", headers={"X-Role": "staff"})[0], 403)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 200 != 403
+
+======================================================================
+FAIL: test_files_cannot_reach_operator_secret (test_security.SecurityTest.test_files_cannot_reach_operator_secret)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 83, in test_files_cannot_reach_operator_secret
+    self.assertNotEqual(status, 200)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+AssertionError: 200 == 200
+
+======================================================================
+FAIL: test_files_scoped_to_owner (test_security.SecurityTest.test_files_scoped_to_owner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 77, in test_files_scoped_to_owner
+    self.assertNotIn("TEST_BOB", result["content"])  # чужой чек не отдаётся
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'TEST_BOB' unexpectedly found in 'TEST_BOB receipt: lamp, 1500 RUB'
+
+======================================================================
+FAIL: test_orders_require_token_and_are_scoped (test_security.SecurityTest.test_orders_require_token_and_are_scoped)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 54, in test_orders_require_token_and_are_scoped
+    self.assertEqual(self.request("GET", "/orders")[0], 401)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 200 != 401
+
+======================================================================
+FAIL: test_price_taken_from_catalog (test_security.SecurityTest.test_price_taken_from_catalog)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 70, in test_price_taken_from_catalog
+    self.assertEqual(order["price"], 5000)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 5000
+
+======================================================================
+FAIL: test_profile_requires_token (test_security.SecurityTest.test_profile_requires_token)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 34, in test_profile_requires_token
+    self.assertEqual(self.request("GET", "/profile?id=1")[0], 401)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 200 != 401
+
+======================================================================
+FAIL: test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=2')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 42, in test_profile_returns_only_own_ignoring_id_and_injection
+    self.assertEqual([r["id"] for r in rows], [1])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [2] != [1]
+
+First differing element 0:
+2
+1
+
+- [2]
++ [1]
+
+======================================================================
+FAIL: test_profile_returns_only_own_ignoring_id_and_injection (test_security.SecurityTest.test_profile_returns_only_own_ignoring_id_and_injection) (path='/profile?id=0 OR 1=1')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 42, in test_profile_returns_only_own_ignoring_id_and_injection
+    self.assertEqual([r["id"] for r in rows], [1])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [1, 2] != [1]
+
+First list contains 1 additional elements.
+First extra element 1:
+2
+
+- [1, 2]
++ [1]
+
+======================================================================
+FAIL: test_review_html_is_escaped (test_security.SecurityTest.test_review_html_is_escaped)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 92, in test_review_html_is_escaped
+    self.assertNotIn("<script>", page)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+AssertionError: '<script>' unexpectedly found in '<html><body><p><script>alert(1)</script></p></body></html>'
+
+======================================================================
+FAIL: test_search_injection_does_not_leak_others (test_security.SecurityTest.test_search_injection_does_not_leak_others)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Vyvch\AppData\Local\Temp\claude\C--Users-Vyvch-source-repos-Vibecoding-ITMOv2\aa0401e7-70e8-4830-99ff-412874d07fb0\scratchpad\orig_proof\test_security.py", line 50, in test_search_injection_does_not_leak_others
+    self.assertNotIn("TEST_BOB", [r["name"] for r in rows])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'TEST_BOB' unexpectedly found in ['TEST_ALICE', 'TEST_BOB']
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.691s
+
+FAILED (failures=16, errors=1)
