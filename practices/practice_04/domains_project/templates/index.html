@@ -217,11 +217,19 @@
         const perPage = 100;
         let searchQuery = '';
         
-        const todayStr = new Date().toISOString().split('T')[0];
-        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = tomorrow.toISOString().split('T')[0];
-        const dayAfter = new Date(); dayAfter.setDate(dayAfter.getDate() + 2);
-        const dayAfterStr = dayAfter.toISOString().split('T')[0];
+        function getLocalDateString(d) {
+            const tzOffset = d.getTimezoneOffset() * 60000;
+            return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
+        }
+
+        const today = new Date();
+        const todayStr = getLocalDateString(today);
+        
+        const tomorrow = new Date(); tomorrow.setDate(today.getDate() + 1);
+        const tomorrowStr = getLocalDateString(tomorrow);
+        
+        const dayAfter = new Date(); dayAfter.setDate(today.getDate() + 2);
+        const dayAfterStr = getLocalDateString(dayAfter);
 
         let activeFilters = ['all'];
 

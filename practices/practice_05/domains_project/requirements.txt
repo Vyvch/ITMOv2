@@ -1,0 +1,6 @@
+requests
+beautifulsoup4
+python-whois
+openai
+fastapi[standard]
+google-re2>=1.1
