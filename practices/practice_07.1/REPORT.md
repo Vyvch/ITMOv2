@@ -72,8 +72,8 @@ GitHub Trigger (PR comment / PR open)
                   │
                   ▼
             Which Model? (If)
-             ├─► Primary Reviewer (GPT-4o-mini) ──┐
-             └─► Secondary Reviewer (DeepSeek) ───┤
+             ├─► Primary Reviewer ────────────────┐
+             └─► Secondary Reviewer ──────────────┤
                                                   ▼
                                     Format GitHub Review Payload
                                                   │
