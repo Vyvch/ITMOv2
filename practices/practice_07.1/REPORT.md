@@ -55,31 +55,34 @@ GitHub Trigger (PR comment / PR open)
                   │
                   ▼
       Route by Command (Switch)
-       ├─ [0: /make_other_ai_review] ──┐
-       └─ [1: /make_ai_review] ───────► Check Data Table (Deduplication)
-                                             │
-                                             ▼
-                                   Get PR Details (head.sha)
-                                             │
-                                             ▼
-                                        Get PR Diff
-                                             │
-                                             ▼
-                                  Parse Diff & Number Lines
-                                             │
-                                             ▼
-                                       Which Model?
-                                        ├─► Primary Reviewer (GPT-4o-mini) ──┐
-                                        └─► Secondary Reviewer (DeepSeek) ───┤
-                                                                             ▼
-                                                               Format GitHub Review Payload
-                                                                             │
-                                                                             ▼
-                                                             Submit Inline Review (GitHub API)
-                                                                             │
-                                                                             ▼
-                                                                  Record PR in Data Table
-                                                                             │
-                                                                             ▼
-                                                                   Add ReviewedByAI Label
+       │                     │
+       │ [0: other]          │ [1: normal /make_ai_review]
+       │                     ▼
+       │          Check Data Table (Deduplication)
+       │                     │
+       └──────────┬──────────┘  <-- /make_other_ai_review идет в обход дедупликации!
+                  ▼
+      Get PR Details (head.sha)
+                  │
+                  ▼
+             Get PR Diff
+                  │
+                  ▼
+     Parse Diff & Number Lines
+                  │
+                  ▼
+            Which Model? (If)
+             ├─► Primary Reviewer (GPT-4o-mini) ──┐
+             └─► Secondary Reviewer (DeepSeek) ───┤
+                                                  ▼
+                                    Format GitHub Review Payload
+                                                  │
+                                                  ▼
+                                  Submit Inline Review (GitHub API)
+                                                  │
+                                                  ▼
+                                       Record PR in Data Table
+                                                  │
+                                                  ▼
+                                        Add ReviewedByAI Label
 ```
