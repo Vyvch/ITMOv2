@@ -1,0 +1,573 @@
+{
+  "name": "Practice 7.1 - PR Code Review (12 Points Max)",
+  "nodes": [
+    {
+      "parameters": {
+        "owner": {
+          "__rl": true,
+          "value": "Vyvch",
+          "mode": "list",
+          "cachedResultName": "Vyvch"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "drop_ru_domain_finder",
+          "mode": "list",
+          "cachedResultName": "drop_ru_domain_finder"
+        },
+        "events": [
+          "issue_comment",
+          "pull_request"
+        ],
+        "options": {}
+      },
+      "id": "github-trigger",
+      "name": "GitHub Trigger",
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.comment ? $json.body.comment.body : ($json.body.action === 'opened' ? '/make_ai_review' : '') }}",
+                    "rightValue": "/make_other_ai_review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.comment ? $json.body.comment.body : ($json.body.action === 'opened' ? '/make_ai_review' : '') }}",
+                    "rightValue": "/make_ai_review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "switch-command",
+      "name": "Route by Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        440,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "dataTableId": {
+          "__rl": true,
+          "value": "pr_reviews",
+          "mode": "name"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "pr_number",
+              "condition": "equals",
+              "value": "={{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}"
+            }
+          ]
+        }
+      },
+      "id": "check-datatable",
+      "name": "Check Data Table (Deduplication)",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        680,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-not-reviewed",
+      "name": "If Not Reviewed Yet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "id": "get-pr-details",
+      "name": "Get PR Details (head.sha)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3.diff"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-pr-diff",
+      "name": "Get PR Diff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst diffText = $json.data || '';\nconst prDetails = $('Get PR Details (head.sha)').first().json;\nconst headSha = prDetails.head ? prDetails.head.sha : '';\nconst prNumber = prDetails.number;\nconst repoFullName = prDetails.base.repo.full_name;\n\nconst lines = diffText.split('\\n');\nlet currentFile = null;\nlet newLineNum = 0;\nconst formatted = [];\nconst validLines = [];\n\nfor (const line of lines) {\n  if (line.startsWith('diff --git')) {\n    const match = line.match(/b\\/(.+)$/);\n    currentFile = match ? match[1].trim() : null;\n  } else if (line.startsWith('@@')) {\n    const hunkMatch = line.match(/\\+([0-9]+)(?:,([0-9]+))?/);\n    if (hunkMatch) newLineNum = parseInt(hunkMatch[1], 10);\n    formatted.push(`\\n--- Файл: ${currentFile} ---`);\n  } else if (currentFile && newLineNum > 0) {\n    if (line.startsWith('+') && !line.startsWith('+++')) {\n      formatted.push(`${currentFile}:${newLineNum} | ${line}`);\n      validLines.push({ path: currentFile, line: newLineNum });\n      newLineNum++;\n    } else if (line.startsWith('-') && !line.startsWith('---')) {\n      // удаленная строка\n    } else {\n      formatted.push(`${currentFile}:${newLineNum} |   ${line}`);\n      newLineNum++;\n    }\n  }\n}\n\nreturn {\n  json: {\n    formatted_diff: formatted.join('\\n'),\n    commit_id: headSha,\n    pr_number: prNumber,\n    repo: repoFullName,\n    valid_lines: validLines\n  }\n};\n"
+      },
+      "id": "parse-diff-node",
+      "name": "Parse Diff & Number Lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('GitHub Trigger').first().json.body.comment ? $('GitHub Trigger').first().json.body.comment.body : '/make_ai_review' }}",
+              "rightValue": "/make_other_ai_review",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ]
+        }
+      },
+      "id": "switch-agent",
+      "name": "Which Agent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — старший Python код-ревьювер. Сделай ТОЧЕЧНОЕ код-ревью изменённых строк в diff.\nВ переданном коде каждая изменённая строка уже снабжена файлом и точным номером строки вида: `<путь_к_файлу>:<номер_строки> | +<код>`.\n\nНайди:\n1. Баги и исключения (особенно деление на ноль, граничные значения)\n2. Проблемы безопасности и валидации\n3. Стиль и best practices\n\nВЕРНИ ТОЛЬКО валидный JSON (без лишних слов, без markdown-разметки вокруг):\n{\n  \"summary\": \"Общий вывод по PR\",\n  \"comments\": [\n    {\n      \"path\": \"analyzer.py\",\n      \"line\": 35,\n      \"side\": \"RIGHT\",\n      \"body\": \"⚠️ Описание проблемы и конкретная рекомендация по исправлению\"\n    }\n  ]\n}\n\nИзменения:\n{{ $json.formatted_diff }}",
+        "options": {
+          "systemMessage": "Ты возвращаешь только валидный JSON объект со структурой: {summary: string, comments: Array<{path: string, line: number, side: string, body: string}>}."
+        }
+      },
+      "id": "agent-primary",
+      "name": "Primary Inline Reviewer (4o-mini)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        2040,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "primary-model",
+      "name": "Model 1 (GPT-4o-mini)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2040,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — независимый эксперт по архитектуре и надёжности Python (Модель 2: DeepSeek).\nСделай альтернативное ТОЧЕЧНОЕ код-ревью изменённых строк.\nКаждая строка снабжена `<файл>:<номер_строки> | +<код>`.\n\nНайди проблемы надёжности, масштабируемости, проверь валидацию типов и краевые условия.\n\nВЕРНИ ТОЛЬКО валидный JSON:\n{\n  \"summary\": \"🔬 Альтернативный вердикт (DeepSeek)\",\n  \"comments\": [\n    {\n      \"path\": \"analyzer.py\",\n      \"line\": 35,\n      \"side\": \"RIGHT\",\n      \"body\": \"🔬 Точечное замечание от DeepSeek...\"\n    }\n  ]\n}\n\nИзменения:\n{{ $json.formatted_diff }}",
+        "options": {
+          "systemMessage": "Ты возвращаешь исключительно валидный JSON."
+        }
+      },
+      "id": "agent-secondary",
+      "name": "Secondary Inline Reviewer (DeepSeek)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        2040,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "deepseek/deepseek-chat",
+          "mode": "list",
+          "cachedResultName": "deepseek/deepseek-chat"
+        },
+        "options": {}
+      },
+      "id": "secondary-model",
+      "name": "Model 2 (DeepSeek-Chat)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2040,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst agentOutput = $json.output || $json.text || '';\nconst parsedData = $('Parse Diff & Number Lines').first().json;\nconst commitId = parsedData.commit_id;\n\nlet parsed = { summary: 'AI Code Review', comments: [] };\ntry {\n  let clean = agentOutput.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const firstBrace = clean.indexOf('{');\n  const lastBrace = clean.lastIndexOf('}');\n  if (firstBrace !== -1 && lastBrace !== -1) {\n    clean = clean.substring(firstBrace, lastBrace + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = {\n    summary: agentOutput,\n    comments: []\n  };\n}\n\nconst safeComments = (parsed.comments || []).map(c => ({\n  path: c.path,\n  line: parseInt(c.line, 10),\n  side: c.side || 'RIGHT',\n  body: c.body\n})).filter(c => c.path && !isNaN(c.line) && c.body);\n\nreturn {\n  json: {\n    commit_id: commitId,\n    body: parsed.summary || '### 🤖 AI Code Review (Точечные замечания)',\n    event: 'COMMENT',\n    comments: safeComments\n  }\n};\n"
+      },
+      "id": "format-review-payload",
+      "name": "Format GitHub Review Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Parse Diff & Number Lines').first().json.repo }}/pulls/{{ $('Parse Diff & Number Lines').first().json.pr_number }}/reviews",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "submit-inline-review",
+      "name": "Submit Inline Review (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2540,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "pr_reviews",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "pr_number": "={{ $('Parse Diff & Number Lines').first().json.pr_number }}",
+            "repo": "={{ $('Parse Diff & Number Lines').first().json.repo }}",
+            "reviewed_at": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "id": "insert-datatable-node",
+      "name": "Record PR in Data Table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        2760,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "Vyvch",
+          "mode": "list",
+          "cachedResultName": "Vyvch"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "drop_ru_domain_finder",
+          "mode": "list",
+          "cachedResultName": "drop_ru_domain_finder"
+        },
+        "issueNumber": "={{ $('Parse Diff & Number Lines').first().json.pr_number }}",
+        "editFields": {
+          "labels": [
+            {
+              "label": "ReviewedByAI"
+            }
+          ]
+        }
+      },
+      "id": "add-label-node",
+      "name": "Add ReviewedByAI Label",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        2980,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "GitHub Trigger": {
+      "main": [
+        [
+          {
+            "node": "Route by Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Command": {
+      "main": [
+        [
+          {
+            "node": "Get PR Details (head.sha)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Data Table (Deduplication)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Data Table (Deduplication)": {
+      "main": [
+        [
+          {
+            "node": "If Not Reviewed Yet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Not Reviewed Yet?": {
+      "main": [
+        [
+          {
+            "node": "Get PR Details (head.sha)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PR Details (head.sha)": {
+      "main": [
+        [
+          {
+            "node": "Get PR Diff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PR Diff": {
+      "main": [
+        [
+          {
+            "node": "Parse Diff & Number Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Diff & Number Lines": {
+      "main": [
+        [
+          {
+            "node": "Which Agent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which Agent?": {
+      "main": [
+        [
+          {
+            "node": "Secondary Inline Reviewer (DeepSeek)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Primary Inline Reviewer (4o-mini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model 1 (GPT-4o-mini)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Primary Inline Reviewer (4o-mini)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model 2 (DeepSeek-Chat)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Secondary Inline Reviewer (DeepSeek)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primary Inline Reviewer (4o-mini)": {
+      "main": [
+        [
+          {
+            "node": "Format Review Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Secondary Inline Reviewer (DeepSeek)": {
+      "main": [
+        [
+          {
+            "node": "Format Review Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Review Payload": {
+      "main": [
+        [
+          {
+            "node": "Submit Inline Review (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Inline Review (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Record PR in Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record PR in Data Table": {
+      "main": [
+        [
+          {
+            "node": "Add ReviewedByAI Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
