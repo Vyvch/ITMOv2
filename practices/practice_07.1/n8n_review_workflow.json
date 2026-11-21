@@ -111,8 +111,8 @@
     {
       "parameters": {
         "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
         "options": {}
       },
       "id": "get-pr-details",
@@ -127,8 +127,8 @@
     {
       "parameters": {
         "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -278,8 +278,8 @@
       "parameters": {
         "method": "POST",
         "url": "=https://api.github.com/repos/{{ $('Parse Diff & Number Lines').first().json.repo }}/pulls/{{ $('Parse Diff & Number Lines').first().json.pr_number }}/reviews",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
