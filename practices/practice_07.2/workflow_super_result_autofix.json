@@ -1,0 +1,355 @@
+{
+  "name": "Practice 7.2 - Super Result: Autonomous Bugfix to Merge",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-node",
+      "name": "When clicking ‘Test workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/domain_exporter.py?ref=main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-source-file",
+      "name": "Fetch Source Code (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\n\nreturn {\n  json: {\n    code: rawCode,\n    file_sha: $json.sha,\n    issue_number: 28,\n    issue_title: 'ZeroDivisionError in calculate_domain_score when domain list is empty'\n  }\n};\n"
+      },
+      "id": "decode-source-code",
+      "name": "Decode Source Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — старший Python-разработчик.\nИсправь баг в коде на основе баг-репорта.\n\nБАГ:\nВ функции calculate_average_score при пустом списке domains_data возникает необработанное исключение ZeroDivisionError (деление на ноль).\nНеобходимо добавить проверку if not domains_data: return 0.0 перед вычислением среднего.\n\nТЕКУЩИЙ ИСХОДНЫЙ КОД:\n{{ $json.code }}\n\nВерни ТОЛЬКО полный исправленный Python-код файла. Без каких-либо пояснений, без вводных слов и БЕЗ маркдаун-тегов (без обратных кавычек ```python)."
+      },
+      "id": "ai-code-fixer",
+      "name": "AI Code Fixer (LLM)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        880,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-fixer",
+      "name": "OpenAI Chat Model (GPT-4o-mini)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\n// Очищаем от возможных markdown тегов\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nconst fixedB64 = Buffer.from(fixedText, 'utf-8').toString('base64');\nconst originalSha = $('Decode Source Code').first().json.file_sha;\nconst issueNum = $('Decode Source Code').first().json.issue_number;\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: originalSha,\n    issue_number: issueNum,\n    branch_name: `fix/n8n-issue-${issueNum}-zerodivision`\n  }\n};\n"
+      },
+      "id": "prepare-patch-node",
+      "name": "Prepare Patch & Base64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/ref/heads/main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "get-main-sha",
+      "name": "Get Main Branch SHA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/refs",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ref",
+              "value": "=refs/heads/{{ $('Prepare Patch & Base64').first().json.branch_name }}"
+            },
+            {
+              "name": "sha",
+              "value": "={{ $json.object.sha }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-fix-branch",
+      "name": "Create Fix Branch (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/domain_exporter.py",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "=fix: Prevent ZeroDivisionError on empty domain list in calculate_average_score (closes #{{ $('Prepare Patch & Base64').first().json.issue_number }})"
+            },
+            {
+              "name": "branch",
+              "value": "={{ $('Prepare Patch & Base64').first().json.branch_name }}"
+            },
+            {
+              "name": "sha",
+              "value": "={{ $('Prepare Patch & Base64').first().json.original_sha }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $('Prepare Patch & Base64').first().json.fixed_content_b64 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "commit-fix-to-branch",
+      "name": "Commit Fix to Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/pulls",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Patch & Base64').first().json.issue_number }} (ZeroDivisionError)"
+            },
+            {
+              "name": "head",
+              "value": "={{ $('Prepare Patch & Base64').first().json.branch_name }}"
+            },
+            {
+              "name": "base",
+              "value": "main"
+            },
+            {
+              "name": "body",
+              "value": "=## Автономное исправление бага через n8n (Super Result)\n\nНа основе баг-репорта **#{{ $('Prepare Patch & Base64').first().json.issue_number }}** сформирован и применён патч для предотвращения `ZeroDivisionError: division by zero` в `domain_exporter.py`.\n\nCloses #{{ $('Prepare Patch & Base64').first().json.issue_number }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-pr-node",
+      "name": "Create Pull Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/pulls/{{ $json.number }}/merge",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "merge_method",
+              "value": "squash"
+            },
+            {
+              "name": "commit_title",
+              "value": "=fix: Auto-merge PR #{{ $json.number }} into main (closes #28)"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-pr-node",
+      "name": "Auto-Merge PR to Main",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Fetch Source Code (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Source Code (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Decode Source Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode Source Code": {
+      "main": [
+        [
+          {
+            "node": "AI Code Fixer (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (GPT-4o-mini)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Code Fixer (LLM)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Code Fixer (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Patch & Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Patch & Base64": {
+      "main": [
+        [
+          {
+            "node": "Get Main Branch SHA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Main Branch SHA": {
+      "main": [
+        [
+          {
+            "node": "Create Fix Branch (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Fix Branch (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Commit Fix to Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit Fix to Branch": {
+      "main": [
+        [
+          {
+            "node": "Create Pull Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Pull Request": {
+      "main": [
+        [
+          {
+            "node": "Auto-Merge PR to Main",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
