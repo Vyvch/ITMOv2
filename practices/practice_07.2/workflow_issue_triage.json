@@ -85,11 +85,11 @@
       "parameters": {
         "conditions": {
           "options": {
-            "caseSensitive": true
+            "caseSensitive": false
           },
           "conditions": [
             {
-              "leftValue": "={{ $json.confidence }}",
+              "leftValue": "={{ Number($json.confidence) }}",
               "rightValue": 0.8,
               "operator": {
                 "type": "number",
@@ -97,11 +97,11 @@
               }
             },
             {
-              "leftValue": "={{ ['bug', 'feature', 'task'].includes($json.type) }}",
-              "rightValue": true,
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "unknown",
               "operator": {
-                "type": "boolean",
-                "operation": "equals"
+                "type": "string",
+                "operation": "notEquals"
               }
             }
           ],

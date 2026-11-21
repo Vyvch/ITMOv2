@@ -26,7 +26,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — автоматический классификатор задач и тикетов в GitHub.\nОпредели категорию задачи на основе её заголовка и описания.\n\nКАТЕГОРИИ (поле type):\n- \"bug\": ошибки, сбои, падения сервиса, исключения, деление на ноль, неработающий функционал.\n- \"feature\": предложение новой функциональности, новый эндпоинт, улучшение функционала.\n- \"task\": рефакторинг, добавление тестов, обновление документации, инженерные задачи.\n- \"unknown\": описание слишком короткое, невнятное, бессмысленное или неоднозначное.\n\nУВЕРЕННОСТЬ (поле confidence от 0.0 до 1.0):\n- Поставь >= 0.85, если категория задачи ясна и однозначна.\n- Обязательно поставь < 0.8 (например, 0.4 - 0.6), если тикет расплывчатый, нет конкретики, описание состоит из пары невнятных слов или невозможно точно определить проблему.\n\nЗаголовок: {{ $json.title }}\nОписание: {{ $json.body }}",
+        "text": "=Ты — автоматический классификатор задач и тикетов в GitHub.\nОпредели категорию задачи на основе её заголовка и описания.\n\nКАТЕГОРИИ (поле type):\n- \"bug\": ошибки, сбои, падения сервиса, исключения, деление на ноль, неработающий функционал.\n- \"feature\": предложение новой функциональности, новый эндпоинт, улучшение функционала.\n- \"task\": рефакторинг, добавление тестов, обновление документации, инженерные задачи.\n- \"unknown\": описание слишком короткое, невнятное, бессмысленное или неоднозначное.\n\nУВЕРЕННОСТЬ (поле confidence от 0.0 до 1.0):\n- Поставь >= 0.85, если категория задачи ясна и однозначна.\n- Обязательно поставь < 0.8 (например, 0.4 - 0.6), если тикет расплывчатый, нет конкретики, описание состоит из пары невнятных слов или невозможно точно определить проблему.\n\nЗаголовок: {{ $json.title || $json.query?.title || '' }}\nОписание: {{ $json.body || $json.query?.body || '' }}",
         "hasOutputParser": true
       },
       "id": "llm-chain-classifier",
@@ -73,7 +73,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst output = $json.output || $json;\n\nlet parsedType = 'unknown';\nlet parsedConfidence = 0.5;\nlet parsedReason = '';\n\nif (typeof output === 'object' && output !== null) {\n  parsedType = (output.type || 'unknown').toLowerCase();\n  parsedConfidence = typeof output.confidence === 'number' ? output.confidence : parseFloat(output.confidence) || 0.5;\n  parsedReason = output.reason || '';\n}\n\nreturn {\n  json: {\n    type: parsedType,\n    confidence: parsedConfidence,\n    reason: parsedReason\n  }\n};\n"
+        "jsCode": "\nlet raw = $json.output || $json.text || $json;\nlet parsed = {};\n\nif (typeof raw === 'string') {\n  try {\n    let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n    const first = clean.indexOf('{');\n    const last = clean.lastIndexOf('}');\n    if (first !== -1 && last !== -1) {\n      clean = clean.substring(first, last + 1);\n    }\n    parsed = JSON.parse(clean);\n  } catch (e) {\n    parsed = {};\n  }\n} else if (typeof raw === 'object' && raw !== null) {\n  parsed = raw;\n}\n\nconst type = (parsed.type || 'unknown').toLowerCase().trim();\nlet conf = typeof parsed.confidence === 'number' ? parsed.confidence : parseFloat(parsed.confidence);\nif (isNaN(conf)) conf = 0.5;\n\nreturn {\n  json: {\n    type: type,\n    confidence: conf,\n    reason: parsed.reason || ''\n  }\n};\n"
       },
       "id": "format-classification-output",
       "name": "Format Classification Output",
