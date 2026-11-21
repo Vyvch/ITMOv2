@@ -1,5 +1,5 @@
 {
-  "name": "Practice 7.1 - PR Code Review (12 Points Clean)",
+  "name": "Practice 7.1 - PR Code Review (12 Points Clean & DRY)",
   "nodes": [
     {
       "parameters": {
@@ -27,7 +27,7 @@
       "typeVersion": 1,
       "position": [
         200,
-        380
+        360
       ]
     },
     {
@@ -77,7 +77,7 @@
       "typeVersion": 3,
       "position": [
         440,
-        380
+        360
       ]
     },
     {
@@ -104,8 +104,8 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        700,
-        520
+        680,
+        480
       ]
     },
     {
@@ -115,13 +115,13 @@
         "genericAuthType": "httpBearerAuth",
         "options": {}
       },
-      "id": "get-pr-details-primary",
-      "name": "Get PR Details (Primary)",
+      "id": "get-pr-details",
+      "name": "Get PR Details (head.sha)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        960,
-        520
+        940,
+        360
       ]
     },
     {
@@ -140,26 +140,53 @@
         },
         "options": {}
       },
-      "id": "get-pr-diff-primary",
-      "name": "Get PR Diff (Primary)",
+      "id": "get-pr-diff",
+      "name": "Get PR Diff",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1200,
-        520
+        1180,
+        360
       ]
     },
     {
       "parameters": {
-        "jsCode": "\nconst diffText = $json.data || '';\nconst prDetails = $('Get PR Details (Primary)').first().json;\nconst headSha = prDetails.head ? prDetails.head.sha : '';\nconst prNumber = prDetails.number;\nconst repoFullName = prDetails.base.repo.full_name;\n\nconst lines = diffText.split('\\n');\nlet currentFile = null;\nlet newLineNum = 0;\nconst formatted = [];\nconst validLines = [];\n\nfor (const line of lines) {\n  if (line.startsWith('diff --git')) {\n    const match = line.match(/b\\/(.+)$/);\n    currentFile = match ? match[1].trim() : null;\n  } else if (line.startsWith('@@')) {\n    const hunkMatch = line.match(/\\+([0-9]+)(?:,([0-9]+))?/);\n    if (hunkMatch) newLineNum = parseInt(hunkMatch[1], 10);\n    formatted.push(`\\n--- Файл: ${currentFile} ---`);\n  } else if (currentFile && newLineNum > 0) {\n    if (line.startsWith('+') && !line.startsWith('+++')) {\n      formatted.push(`${currentFile}:${newLineNum} | ${line}`);\n      validLines.push({ path: currentFile, line: newLineNum });\n      newLineNum++;\n    } else if (line.startsWith('-') && !line.startsWith('---')) {\n    } else {\n      formatted.push(`${currentFile}:${newLineNum} |   ${line}`);\n      newLineNum++;\n    }\n  }\n}\n\nreturn {\n  json: {\n    formatted_diff: formatted.join('\\n'),\n    commit_id: headSha,\n    pr_number: prNumber,\n    repo: repoFullName\n  }\n};\n"
+        "jsCode": "\nconst diffText = $json.data || '';\nconst prDetails = $('Get PR Details (head.sha)').first().json;\nconst headSha = prDetails.head ? prDetails.head.sha : '';\nconst prNumber = prDetails.number;\nconst repoFullName = prDetails.base.repo.full_name;\n\nconst lines = diffText.split('\\n');\nlet currentFile = null;\nlet newLineNum = 0;\nconst formatted = [];\nconst validLines = [];\n\nfor (const line of lines) {\n  if (line.startsWith('diff --git')) {\n    const match = line.match(/b\\/(.+)$/);\n    currentFile = match ? match[1].trim() : null;\n  } else if (line.startsWith('@@')) {\n    const hunkMatch = line.match(/\\+([0-9]+)(?:,([0-9]+))?/);\n    if (hunkMatch) newLineNum = parseInt(hunkMatch[1], 10);\n    formatted.push(`\\n--- Файл: ${currentFile} ---`);\n  } else if (currentFile && newLineNum > 0) {\n    if (line.startsWith('+') && !line.startsWith('+++')) {\n      formatted.push(`${currentFile}:${newLineNum} | ${line}`);\n      validLines.push({ path: currentFile, line: newLineNum });\n      newLineNum++;\n    } else if (line.startsWith('-') && !line.startsWith('---')) {\n    } else {\n      formatted.push(`${currentFile}:${newLineNum} |   ${line}`);\n      newLineNum++;\n    }\n  }\n}\n\nreturn {\n  json: {\n    formatted_diff: formatted.join('\\n'),\n    commit_id: headSha,\n    pr_number: prNumber,\n    repo: repoFullName\n  }\n};\n"
       },
-      "id": "parse-diff-primary",
-      "name": "Parse Diff (Primary)",
+      "id": "parse-diff-node",
+      "name": "Parse Diff & Number Lines",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1440,
-        520
+        1420,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('GitHub Trigger').first().json.body.comment ? $('GitHub Trigger').first().json.body.comment.body : '' }}",
+              "rightValue": "/make_other_ai_review",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ]
+        }
+      },
+      "id": "which-model",
+      "name": "Which Model?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        360
       ]
     },
     {
@@ -167,7 +194,7 @@
         "promptType": "define",
         "text": "=Ты — старший Python код-ревьювер. Сделай ТОЧЕЧНОЕ код-ревью изменённых строк в diff.\nВ переданном коде каждая изменённая строка уже снабжена файлом и точным номером строки вида: `<путь_к_файлу>:<номер_строки> | +<код>`.\n\nНайди:\n1. Баги и исключения (особенно деление на ноль, граничные значения)\n2. Проблемы безопасности и валидации\n3. Стиль и best practices\n\nВЕРНИ ТОЛЬКО валидный JSON (без markdown-разметки ```json вокруг):\n{\n  \"summary\": \"### 🤖 AI Code Review (Основная модель: GPT-4o-mini)\\n\\nОбщий вердикт по PR.\",\n  \"comments\": [\n    {\n      \"path\": \"analyzer.py\",\n      \"line\": 35,\n      \"side\": \"RIGHT\",\n      \"body\": \"⚠️ Описание проблемы и конкретная рекомендация по исправлению\"\n    }\n  ]\n}\n\nИзменения:\n{{ $json.formatted_diff }}",
         "options": {
-          "systemMessage": "Ты возвращаешь исключительно валидный JSON объект."
+          "systemMessage": "Ты возвращаешь только валидный JSON объект со структурой: {summary: string, comments: Array<{path: string, line: number, side: string, body: string}>}."
         }
       },
       "id": "agent-primary",
@@ -175,8 +202,8 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.9,
       "position": [
-        1680,
-        520
+        1920,
+        480
       ]
     },
     {
@@ -189,32 +216,68 @@
         },
         "options": {}
       },
-      "id": "model-primary",
+      "id": "primary-model",
       "name": "Model 1 (GPT-4o-mini)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
       "position": [
-        1680,
-        720
+        1920,
+        680
       ]
     },
     {
       "parameters": {
-        "jsCode": "\nconst agentOutput = $json.output || $json.text || '';\nconst parsedData = $('Parse Diff (Primary)').first().json;\nconst commitId = parsedData.commit_id;\n\nlet parsed = { summary: 'AI Code Review', comments: [] };\ntry {\n  let clean = agentOutput.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const firstBrace = clean.indexOf('{');\n  const lastBrace = clean.lastIndexOf('}');\n  if (firstBrace !== -1 && lastBrace !== -1) {\n    clean = clean.substring(firstBrace, lastBrace + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { summary: agentOutput, comments: [] };\n}\n\nconst safeComments = (parsed.comments || []).map(c => ({\n  path: c.path,\n  line: parseInt(c.line, 10),\n  side: c.side || 'RIGHT',\n  body: c.body\n})).filter(c => c.path && !isNaN(c.line) && c.body);\n\nreturn {\n  json: {\n    commit_id: commitId,\n    body: parsed.summary || '### 🤖 AI Code Review (Точечные замечания)',\n    event: 'COMMENT',\n    comments: safeComments\n  }\n};\n"
+        "promptType": "define",
+        "text": "=Ты — независимый эксперт по архитектуре и надёжности Python (Вторая модель: DeepSeek).\nСделай альтернативное ТОЧЕЧНОЕ код-ревью изменённых строк.\nКаждая строка снабжена `<файл>:<номер_строки> | +<код>`.\n\nНайди проблемы надёжности, масштабируемости, проверь валидацию типов и краевые условия.\n\nВЕРНИ ТОЛЬКО валидный JSON (без разметки вокруг):\n{\n  \"summary\": \"### 🔬 Alternative AI Code Review (Вторая модель: DeepSeek)\\n\\nАльтернативный вердикт по архитектуре и безопасности.\",\n  \"comments\": [\n    {\n      \"path\": \"analyzer.py\",\n      \"line\": 35,\n      \"side\": \"RIGHT\",\n      \"body\": \"🔬 Точечное замечание от DeepSeek: обратите внимание на...\"\n    }\n  ]\n}\n\nИзменения:\n{{ $json.formatted_diff }}",
+        "options": {
+          "systemMessage": "Ты возвращаешь исключительно валидный JSON."
+        }
       },
-      "id": "format-payload-primary",
-      "name": "Format Payload (Primary)",
+      "id": "agent-secondary",
+      "name": "Secondary Inline Reviewer (DeepSeek)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        1920,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "deepseek/deepseek-chat",
+          "mode": "list",
+          "cachedResultName": "deepseek/deepseek-chat"
+        },
+        "options": {}
+      },
+      "id": "secondary-model",
+      "name": "Model 2 (DeepSeek-Chat)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst agentOutput = $json.output || $json.text || '';\nconst parsedData = $('Parse Diff & Number Lines').first().json;\nconst commitId = parsedData.commit_id;\n\nlet parsed = { summary: 'AI Code Review', comments: [] };\ntry {\n  let clean = agentOutput.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const firstBrace = clean.indexOf('{');\n  const lastBrace = clean.lastIndexOf('}');\n  if (firstBrace !== -1 && lastBrace !== -1) {\n    clean = clean.substring(firstBrace, lastBrace + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { summary: agentOutput, comments: [] };\n}\n\nconst safeComments = (parsed.comments || []).map(c => ({\n  path: c.path,\n  line: parseInt(c.line, 10),\n  side: c.side || 'RIGHT',\n  body: c.body\n})).filter(c => c.path && !isNaN(c.line) && c.body);\n\nreturn {\n  json: {\n    commit_id: commitId,\n    body: parsed.summary || '### 🤖 AI Code Review (Точечные замечания)',\n    event: 'COMMENT',\n    comments: safeComments\n  }\n};\n"
+      },
+      "id": "format-review-payload",
+      "name": "Format GitHub Review Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1960,
-        520
+        2200,
+        360
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.github.com/repos/{{ $('Parse Diff (Primary)').first().json.repo }}/pulls/{{ $('Parse Diff (Primary)').first().json.pr_number }}/reviews",
+        "url": "=https://api.github.com/repos/{{ $('Parse Diff & Number Lines').first().json.repo }}/pulls/{{ $('Parse Diff & Number Lines').first().json.pr_number }}/reviews",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBearerAuth",
         "sendHeaders": true,
@@ -231,13 +294,13 @@
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {}
       },
-      "id": "submit-review-primary",
-      "name": "Submit Inline Review (Primary)",
+      "id": "submit-inline-review",
+      "name": "Submit Inline Review (GitHub API)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2200,
-        520
+        2440,
+        360
       ]
     },
     {
@@ -252,8 +315,8 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "pr_number": "={{ $('Parse Diff (Primary)').first().json.pr_number }}",
-            "repo": "={{ $('Parse Diff (Primary)').first().json.repo }}",
+            "pr_number": "={{ $('Parse Diff & Number Lines').first().json.pr_number }}",
+            "repo": "={{ $('Parse Diff & Number Lines').first().json.repo }}",
             "reviewed_at": "={{ $now.toISO() }}"
           }
         }
@@ -263,8 +326,8 @@
       "type": "n8n-nodes-base.dataTable",
       "typeVersion": 1,
       "position": [
-        2440,
-        520
+        2680,
+        360
       ]
     },
     {
@@ -282,7 +345,7 @@
           "mode": "list",
           "cachedResultName": "drop_ru_domain_finder"
         },
-        "issueNumber": "={{ $('Parse Diff (Primary)').first().json.pr_number }}",
+        "issueNumber": "={{ $('Parse Diff & Number Lines').first().json.pr_number }}",
         "editFields": {
           "labels": [
             {
@@ -296,140 +359,8 @@
       "type": "n8n-nodes-base.github",
       "typeVersion": 1,
       "position": [
-        2680,
-        520
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "options": {}
-      },
-      "id": "get-pr-details-sec",
-      "name": "Get PR Details (Secondary)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        700,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/repos/{{ $('GitHub Trigger').first().json.body.repository.full_name }}/pulls/{{ $('GitHub Trigger').first().json.body.issue ? $('GitHub Trigger').first().json.body.issue.number : $('GitHub Trigger').first().json.body.number }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/vnd.github.v3.diff"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "get-pr-diff-sec",
-      "name": "Get PR Diff (Secondary)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        960,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "\nconst diffText = $json.data || '';\nconst prDetails = $('Get PR Details (Secondary)').first().json;\nconst headSha = prDetails.head ? prDetails.head.sha : '';\nconst prNumber = prDetails.number;\nconst repoFullName = prDetails.base.repo.full_name;\n\nconst lines = diffText.split('\\n');\nlet currentFile = null;\nlet newLineNum = 0;\nconst formatted = [];\nconst validLines = [];\n\nfor (const line of lines) {\n  if (line.startsWith('diff --git')) {\n    const match = line.match(/b\\/(.+)$/);\n    currentFile = match ? match[1].trim() : null;\n  } else if (line.startsWith('@@')) {\n    const hunkMatch = line.match(/\\+([0-9]+)(?:,([0-9]+))?/);\n    if (hunkMatch) newLineNum = parseInt(hunkMatch[1], 10);\n    formatted.push(`\\n--- Файл: ${currentFile} ---`);\n  } else if (currentFile && newLineNum > 0) {\n    if (line.startsWith('+') && !line.startsWith('+++')) {\n      formatted.push(`${currentFile}:${newLineNum} | ${line}`);\n      validLines.push({ path: currentFile, line: newLineNum });\n      newLineNum++;\n    } else if (line.startsWith('-') && !line.startsWith('---')) {\n    } else {\n      formatted.push(`${currentFile}:${newLineNum} |   ${line}`);\n      newLineNum++;\n    }\n  }\n}\n\nreturn {\n  json: {\n    formatted_diff: formatted.join('\\n'),\n    commit_id: headSha,\n    pr_number: prNumber,\n    repo: repoFullName\n  }\n};\n"
-      },
-      "id": "parse-diff-sec",
-      "name": "Parse Diff (Secondary)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1200,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "=Ты — независимый эксперт по архитектуре и надёжности Python (Вторая модель: DeepSeek).\nСделай альтернативное ТОЧЕЧНОЕ код-ревью изменённых строк.\nКаждая строка снабжена `<файл>:<номер_строки> | +<код>`.\n\nНайди проблемы надёжности, масштабируемости, проверь валидацию типов и краевые условия.\n\nВЕРНИ ТОЛЬКО валидный JSON:\n{\n  \"summary\": \"### 🔬 Alternative AI Code Review (Вторая модель: DeepSeek)\\n\\nАльтернативный вердикт по архитектуре и безопасности.\",\n  \"comments\": [\n    {\n      \"path\": \"analyzer.py\",\n      \"line\": 35,\n      \"side\": \"RIGHT\",\n      \"body\": \"🔬 Точечное замечание от DeepSeek: обратите внимание на...\"\n    }\n  ]\n}\n\nИзменения:\n{{ $json.formatted_diff }}",
-        "options": {
-          "systemMessage": "Ты возвращаешь исключительно валидный JSON."
-        }
-      },
-      "id": "agent-secondary",
-      "name": "Secondary Inline Reviewer (DeepSeek)",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 1.9,
-      "position": [
-        1440,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "deepseek/deepseek-chat",
-          "mode": "list",
-          "cachedResultName": "deepseek/deepseek-chat"
-        },
-        "options": {}
-      },
-      "id": "model-secondary",
-      "name": "Model 2 (DeepSeek-Chat)",
-      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-      "typeVersion": 1.2,
-      "position": [
-        1440,
-        40
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "\nconst agentOutput = $json.output || $json.text || '';\nconst parsedData = $('Parse Diff (Secondary)').first().json;\nconst commitId = parsedData.commit_id;\n\nlet parsed = { summary: 'AI Code Review', comments: [] };\ntry {\n  let clean = agentOutput.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const firstBrace = clean.indexOf('{');\n  const lastBrace = clean.lastIndexOf('}');\n  if (firstBrace !== -1 && lastBrace !== -1) {\n    clean = clean.substring(firstBrace, lastBrace + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { summary: agentOutput, comments: [] };\n}\n\nconst safeComments = (parsed.comments || []).map(c => ({\n  path: c.path,\n  line: parseInt(c.line, 10),\n  side: c.side || 'RIGHT',\n  body: c.body\n})).filter(c => c.path && !isNaN(c.line) && c.body);\n\nreturn {\n  json: {\n    commit_id: commitId,\n    body: parsed.summary || '### 🔬 Alternative AI Code Review (Точечные замечания)',\n    event: 'COMMENT',\n    comments: safeComments\n  }\n};\n"
-      },
-      "id": "format-payload-sec",
-      "name": "Format Payload (Secondary)",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1720,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.github.com/repos/{{ $('Parse Diff (Secondary)').first().json.repo }}/pulls/{{ $('Parse Diff (Secondary)').first().json.pr_number }}/reviews",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/vnd.github+json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {}
-      },
-      "id": "submit-review-sec",
-      "name": "Submit Inline Review (Secondary)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1960,
-        240
+        2920,
+        360
       ]
     }
   ],
@@ -449,7 +380,7 @@
       "main": [
         [
           {
-            "node": "Get PR Details (Secondary)",
+            "node": "Get PR Details (head.sha)",
             "type": "main",
             "index": 0
           }
@@ -467,37 +398,55 @@
       "main": [
         [
           {
-            "node": "Get PR Details (Primary)",
+            "node": "Get PR Details (head.sha)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get PR Details (Primary)": {
+    "Get PR Details (head.sha)": {
       "main": [
         [
           {
-            "node": "Get PR Diff (Primary)",
+            "node": "Get PR Diff",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get PR Diff (Primary)": {
+    "Get PR Diff": {
       "main": [
         [
           {
-            "node": "Parse Diff (Primary)",
+            "node": "Parse Diff & Number Lines",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Parse Diff (Primary)": {
+    "Parse Diff & Number Lines": {
       "main": [
+        [
+          {
+            "node": "Which Model?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which Model?": {
+      "main": [
+        [
+          {
+            "node": "Secondary Inline Reviewer (DeepSeek)",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Primary Inline Reviewer (4o-mini)",
@@ -518,29 +467,51 @@
         ]
       ]
     },
+    "Model 2 (DeepSeek-Chat)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Secondary Inline Reviewer (DeepSeek)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Primary Inline Reviewer (4o-mini)": {
       "main": [
         [
           {
-            "node": "Format Payload (Primary)",
+            "node": "Format GitHub Review Payload",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Format Payload (Primary)": {
+    "Secondary Inline Reviewer (DeepSeek)": {
       "main": [
         [
           {
-            "node": "Submit Inline Review (Primary)",
+            "node": "Format GitHub Review Payload",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Submit Inline Review (Primary)": {
+    "Format GitHub Review Payload": {
+      "main": [
+        [
+          {
+            "node": "Submit Inline Review (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Inline Review (GitHub API)": {
       "main": [
         [
           {
@@ -556,72 +527,6 @@
         [
           {
             "node": "Add ReviewedByAI Label",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get PR Details (Secondary)": {
-      "main": [
-        [
-          {
-            "node": "Get PR Diff (Secondary)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get PR Diff (Secondary)": {
-      "main": [
-        [
-          {
-            "node": "Parse Diff (Secondary)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse Diff (Secondary)": {
-      "main": [
-        [
-          {
-            "node": "Secondary Inline Reviewer (DeepSeek)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Model 2 (DeepSeek-Chat)": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Secondary Inline Reviewer (DeepSeek)",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Secondary Inline Reviewer (DeepSeek)": {
-      "main": [
-        [
-          {
-            "node": "Format Payload (Secondary)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Payload (Secondary)": {
-      "main": [
-        [
-          {
-            "node": "Submit Inline Review (Secondary)",
             "type": "main",
             "index": 0
           }
