@@ -7,72 +7,79 @@
 
 ---
 
-## Подтверждение выполнения всех критериев (12 из 12 баллов)
+## Хроника выполнения и подтверждение всех критериев (12 из 12 баллов)
 
-### 1. Критерий 1: Команда `/make_other_ai_review` со второй моделью (2 балла)
-Команда `/make_other_ai_review` запускает альтернативное код-ревью с помощью второй модели (`deepseek/deepseek-chat` / `gemini`), публикуя результат отдельным ревью в PR.
+### 1. Открытие PR и запуск основной модели (Критерий 4, «со звёздочкой» — 5 баллов)
+В PR #2 отправлен комментарий `/make_ai_review`. Воркфлоу n8n автоматически обработал diff, выставил лейбл `ReviewedByAI` и опубликовал точечные замечания:
 
-![Вторая модель](./screenshots/03_secondary_review.jpg)
+* **Общий вид PR и вызов команды:**
+![Запуск первичного ревью](./screenshots/01_pr_overview_and_trigger.jpg)
 
----
+* **Компактный вердикт (summary) и точечный комментарий к строке 22 (`ZeroDivisionError`):**
+![Первичное ревью summary и строка 22](./screenshots/02_primary_review_summary_and_inline.png)
 
-### 2. Критерий 2: Интеграция с Data Table (2 балла)
-Создана Data Table `pr_reviews`, в которую после каждого успешного ревью сохраняется запись с номером PR, репозиторием и таймстемпом.
-
-![Data Table pr_reviews](./screenshots/01_datatable.png)
-
----
-
-### 3. Критерий 3: Дедупликация повторных вызовов (3 балла)
-При повторном вызове `/make_ai_review` на уже проверенный PR нода `Check Data Table (Deduplication)` находит существующую запись в `pr_reviews`, возвращает `0 items` и останавливает сценарий. Повторный комментарий полностью игнорируется:
-
-![Дедупликация](./screenshots/04_deduplication_ignored.png)
+* **Точечные комментарии к валидации в `api.py` и краевым случаям в `tests/test_domain_health.py`:**
+![Первичное ревью api и тесты](./screenshots/03_primary_review_api_and_tests.png)
 
 ---
 
-### 4. Критерий 4 («Со звёздочкой»): Точечные inline-комментарии к коду diff (5 баллов)
-Комментарии публикуются не в виде общего текста, а точечно — с привязкой к конкретным строкам diff через официальный GitHub Reviews API (`POST /pulls/{number}/reviews`).
+### 2. Запуск второй модели через `/make_other_ai_review` (Критерий 1 — 2 балла)
+По команде `/make_other_ai_review` вызвана альтернативная модель (`DeepSeek`), которая провела независимый архитектурный анализ надежности и безопасности:
 
-* **Первичное ревью (GPT-4o-mini) с инлайн-замечанием к строке 22:**
-![Первичное ревью](./screenshots/02_primary_review.jpg)
+* **Вызов `/make_other_ai_review`, вердикт второй модели и точечный комментарий:**
+![Вторая модель вызов и вердикт](./screenshots/04_secondary_model_command_and_review.png)
 
-* **Альтернативное ревью (Вторая модель) с инлайн-замечанием к строкам 19-22:**
-![Второе ревью](./screenshots/03_secondary_review.jpg)
+* **Точечные комментарии второй модели к DoS-рискам в `api.py` и типизации Pydantic:**
+![Вторая модель комментарии api и domain](./screenshots/05_secondary_model_api_and_domain.png)
 
 ---
 
-## Архитектура сценария (DRY)
+### 3. Проверка дедупликации (Критерий 3 — 3 балла)
+В PR #2 повторно отправлена команда `/make_ai_review`. Нода `Check Data Table (Deduplication)` нашла запись в Data Table, отфильтровала событие (`0 items`) и остановила выполнение сценария. Повторное ревью проигнорировано:
+
+![Дедупликация повторного вызова](./screenshots/06_deduplication_ignored_repeat.png)
+
+---
+
+### 4. Содержимое Data Table (Критерий 2 — 2 балла)
+В таблице `pr_reviews` зафиксированы успешные проверки PR #2 с отметками времени и именем репозитория:
+
+![Data Table pr_reviews](./screenshots/07_datatable_pr_reviews.png)
+
+---
+
+## Архитектурная схема n8n (DRY)
 
 ```text
-GitHub Trigger
-      │
-      ▼
-Route by Command (Switch)
- ├─ [0: /make_other_ai_review] ──┐
- └─ [1: /make_ai_review] ───────► Check Data Table (Deduplication)
-                                       │
-                                       ▼
-                             Get PR Details (head.sha)
-                                       │
-                                       ▼
-                                  Get PR Diff
-                                       │
-                                       ▼
-                            Parse Diff & Number Lines
-                                       │
-                                       ▼
-                                 Which Model? (If)
-                                  ├─► Primary Reviewer (GPT-4o-mini) ──┐
-                                  └─► Secondary Reviewer (DeepSeek) ───┤
-                                                                       ▼
-                                                         Format GitHub Review Payload
-                                                                       │
-                                                                       ▼
-                                                       Submit Inline Review (GitHub API)
-                                                                       │
-                                                                       ▼
-                                                            Record PR in Data Table
-                                                                       │
-                                                                       ▼
-                                                             Add ReviewedByAI Label
+GitHub Trigger (PR comment / PR open)
+                  │
+                  ▼
+      Route by Command (Switch)
+       ├─ [0: /make_other_ai_review] ──┐
+       └─ [1: /make_ai_review] ───────► Check Data Table (Deduplication)
+                                             │
+                                             ▼
+                                   Get PR Details (head.sha)
+                                             │
+                                             ▼
+                                        Get PR Diff
+                                             │
+                                             ▼
+                                  Parse Diff & Number Lines
+                                             │
+                                             ▼
+                                       Which Model?
+                                        ├─► Primary Reviewer (GPT-4o-mini) ──┐
+                                        └─► Secondary Reviewer (DeepSeek) ───┤
+                                                                             ▼
+                                                               Format GitHub Review Payload
+                                                                             │
+                                                                             ▼
+                                                             Submit Inline Review (GitHub API)
+                                                                             │
+                                                                             ▼
+                                                                  Record PR in Data Table
+                                                                             │
+                                                                             ▼
+                                                                   Add ReviewedByAI Label
 ```
