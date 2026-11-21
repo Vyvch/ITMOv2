@@ -95,17 +95,8 @@
                 "type": "number",
                 "operation": "gte"
               }
-            },
-            {
-              "leftValue": "={{ $json.type }}",
-              "rightValue": "unknown",
-              "operator": {
-                "type": "string",
-                "operation": "notEquals"
-              }
             }
-          ],
-          "combinator": "and"
+          ]
         }
       },
       "id": "check-confidence-escalation",
