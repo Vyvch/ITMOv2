@@ -564,16 +564,19 @@
         
         <!-- Шапка панели: домен крупно, кнопка копирования, прямая ссылка, закрыть -->
         <div class="h-[60px] px-6 border-b border-muted-border flex items-center justify-between bg-white shrink-0">
-            <div class="flex items-center gap-2 min-w-0">
-                <h2 id="drawer-domain-title" class="font-mono text-base font-bold text-text truncate">market-cloud.ru</h2>
-                <button type="button" onclick="copyCurrentDrawerDomain()" class="p-1 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors" title="Копировать домен">
+            <div class="flex items-center gap-2 min-w-0 pr-3">
+                <div class="flex flex-col min-w-0">
+                    <h2 id="drawer-domain-title" class="font-mono text-base font-bold text-text truncate">market-cloud.ru</h2>
+                    <span id="drawer-domain-punycode" class="font-mono text-[10px] text-text-muted truncate hidden"></span>
+                </div>
+                <button type="button" onclick="copyCurrentDrawerDomain()" class="p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors shrink-0" title="Копировать домен">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
                 </button>
-                <a id="drawer-external-link" href="http://market-cloud.ru" target="_blank" rel="noopener noreferrer" class="p-1 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors" title="Открыть в новой вкладке">
+                <a id="drawer-external-link" href="http://market-cloud.ru" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors shrink-0" title="Открыть в новой вкладке">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                 </a>
             </div>
-            <button type="button" onclick="closeDrawerDemo()" class="p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors text-xs font-mono" title="Закрыть панель">
+            <button type="button" onclick="closeDrawerDemo()" class="domain-dialog-close p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors text-xs font-mono shrink-0" title="Закрыть панель">
                 ✕
             </button>
         </div>
@@ -620,8 +623,8 @@
             <div class="space-y-3 pt-2">
                 <div class="flex items-center justify-between">
                     <h3 class="text-[11px] font-semibold text-text-muted uppercase tracking-wider font-mono">Карма в Wayback Machine</h3>
-                    <span class="inline-flex items-center gap-1 text-[10px] font-mono text-text-muted">
-                        <span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                    <span id="drawer-cache-badge" class="inline-flex items-center gap-1.5 text-[10px] font-mono text-text-muted">
+                        <span id="drawer-cache-dot" class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
                         <span id="drawer-cache-status">Из кэша (0.1с)</span>
                     </span>
                 </div>
@@ -650,10 +653,16 @@
                     </a>
                 </div>
 
-                <!-- История / повторный запрос -->
-                <div class="pt-2 border-t border-muted-border text-[11px] text-text-muted font-mono flex items-center justify-between">
-                    <span>Снимков: 1 234 • Первый: 15.03.2009 • Последний: 02.10.2026</span>
-                    <button type="button" class="text-accent underline hover:no-underline">Повторить</button>
+                <!-- Интерактивная кнопка запроса истории -->
+                <div class="pt-1">
+                    <button type="button" onclick="requestDrawerWaybackDemo()" id="drawer-request-btn" class="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-medium bg-accent text-white rounded-[4px] hover:bg-zinc-800 transition-colors hidden">
+                        Запросить историю
+                    </button>
+                    <div id="drawer-history-result" class="text-xs font-mono text-text-muted space-y-1 pt-2 border-t border-muted-border mt-2">
+                        <div>Снимков: 1 234</div>
+                        <div>Первый: 2009-03-15</div>
+                        <div>Последний: 2026-10-02</div>
+                    </div>
                 </div>
             </div>
 
@@ -813,12 +822,54 @@
         function openDrawerDemo(domain, date, registrar, created, count, first, last, punycode) {
             document.getElementById('drawer-domain-title').textContent = domain;
             document.getElementById('drawer-drop-date').textContent = date;
+            
+            const punyEl = document.getElementById('drawer-domain-punycode');
+            if (punyEl) {
+                if (punycode) {
+                    punyEl.textContent = punycode;
+                    punyEl.classList.remove('hidden');
+                } else {
+                    punyEl.textContent = '';
+                    punyEl.classList.add('hidden');
+                }
+            }
+
             document.getElementById('drawer-whois-registrar').textContent = registrar;
             document.getElementById('drawer-whois-created').textContent = created;
             document.getElementById('drawer-whois-paid').textContent = date;
-            document.getElementById('drawer-metric-count').textContent = count ? count.toLocaleString('ru-RU') : '0';
-            document.getElementById('drawer-metric-first').textContent = first || '—';
-            document.getElementById('drawer-metric-last').textContent = last || '—';
+
+            const countEl = document.getElementById('drawer-metric-count');
+            const firstEl = document.getElementById('drawer-metric-first');
+            const lastEl = document.getElementById('drawer-metric-last');
+            const statusEl = document.getElementById('drawer-cache-status');
+            const dotEl = document.getElementById('drawer-cache-dot');
+            const btnEl = document.getElementById('drawer-request-btn');
+            const resEl = document.getElementById('drawer-history-result');
+
+            if (count) {
+                countEl.textContent = count.toLocaleString('ru-RU');
+                firstEl.textContent = first || '—';
+                lastEl.textContent = last || '—';
+                if (statusEl) statusEl.textContent = 'Из кэша (0.1с)';
+                if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-success-green';
+                if (btnEl) btnEl.classList.add('hidden');
+                if (resEl) {
+                    resEl.classList.remove('hidden');
+                    resEl.innerHTML = '<div>Снимков: ' + count.toLocaleString('ru-RU') + '</div><div>Первый: ' + (first || '—') + '</div><div>Последний: ' + (last || '—') + '</div>';
+                }
+            } else {
+                countEl.textContent = '—';
+                firstEl.textContent = '—';
+                lastEl.textContent = '—';
+                if (statusEl) statusEl.textContent = 'Не запрошено';
+                if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-zinc-400';
+                if (btnEl) {
+                    btnEl.classList.remove('hidden');
+                    btnEl.textContent = 'Запросить историю';
+                    btnEl.disabled = false;
+                }
+                if (resEl) resEl.classList.add('hidden');
+            }
             
             const archHost = punycode || domain;
             document.getElementById('drawer-archive-btn').href = 'https://web.archive.org/web/*/' + archHost;
@@ -826,6 +877,37 @@
 
             document.getElementById('drawer-backdrop').classList.add('open');
             document.getElementById('drawer-panel').classList.add('open');
+        }
+
+        function requestDrawerWaybackDemo() {
+            const btnEl = document.getElementById('drawer-request-btn');
+            const countEl = document.getElementById('drawer-metric-count');
+            const firstEl = document.getElementById('drawer-metric-first');
+            const lastEl = document.getElementById('drawer-metric-last');
+            const statusEl = document.getElementById('drawer-cache-status');
+            const dotEl = document.getElementById('drawer-cache-dot');
+            const resEl = document.getElementById('drawer-history-result');
+
+            btnEl.disabled = true;
+            btnEl.textContent = 'Загрузка истории…';
+            statusEl.textContent = 'Запрос в архив...';
+            dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
+            countEl.textContent = '...';
+            firstEl.textContent = '...';
+            lastEl.textContent = '...';
+
+            setTimeout(() => {
+                countEl.textContent = '1 234';
+                firstEl.textContent = '2009';
+                lastEl.textContent = '2026';
+                statusEl.textContent = 'Из веб-архива';
+                dotEl.className = 'w-1.5 h-1.5 rounded-full bg-success-green';
+                btnEl.classList.add('hidden');
+                if (resEl) {
+                    resEl.classList.remove('hidden');
+                    resEl.innerHTML = '<div>Снимков: 1 234</div><div>Первый: 2009-03-15</div><div>Последний: 2026-10-02</div>';
+                }
+            }, 600);
         }
 
         function closeDrawerDemo() {
