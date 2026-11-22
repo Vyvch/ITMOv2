@@ -130,7 +130,14 @@ flowchart TD
    * [Issue #36](https://github.com/Vyvch/drop_ru_domain_finder/issues/36) автоматически закрыт.
    * Добавлен регрессионный тест, все unit-тесты проекта (143/143) успешно пройдены.
 
+* **Скриншот безопасной эскалации с комментарием AI-судьи в Issue #33:**
 ![Эскалация и лейбл needs-human-review](./screenshots/05_super_result_escalation_loop.jpg)
+
+* **Скриншот успешного слияния авто-фикса в PR #37 (Closes #36):**
+![Авто-мердж PR 37](./screenshots/07_github_pr_automerged.jpg)
+
+* **Скриншот выполнения воркфлоу в n8n (параллельная обработка и авто-мердж):**
+![Выполнение авто-фикса в n8n](./screenshots/06_super_result_n8n_executions.jpg)
 
 ---
 
