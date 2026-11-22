@@ -37,7 +37,7 @@
           },
           "conditions": [
             {
-              "leftValue": "={{ ($json.body.issue.labels || []).map(l => l.name).includes('bug') || $json.body.label?.name === 'bug' }}",
+              "leftValue": "={{ ((($json.body || $json).issue?.labels || []).map(l => l.name).includes('bug') || ($json.body || $json).label?.name === 'bug') && !((($json.body || $json).issue?.labels || []).map(l => l.name).includes('needs-human-review')) && (($json.body || $json).issue?.state || 'open') === 'open' }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
