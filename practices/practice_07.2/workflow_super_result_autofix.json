@@ -1,11 +1,28 @@
 {
-  "name": "Practice 7.2 - Super Result: Autonomous Bugfix to Merge",
+  "name": "Practice 7.2 - Super Result: Autonomous Bugfix to Merge (Dynamic)",
   "nodes": [
     {
-      "parameters": {},
-      "id": "manual-trigger-node",
-      "name": "When clicking ‘Test workflow’",
-      "type": "n8n-nodes-base.manualTrigger",
+      "parameters": {
+        "owner": {
+          "__rl": true,
+          "value": "Vyvch",
+          "mode": "list",
+          "cachedResultName": "Vyvch"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "drop_ru_domain_finder",
+          "mode": "list",
+          "cachedResultName": "drop_ru_domain_finder"
+        },
+        "events": [
+          "issues"
+        ],
+        "options": {}
+      },
+      "id": "github-issues-trigger",
+      "name": "GitHub Issues Trigger",
+      "type": "n8n-nodes-base.githubTrigger",
       "typeVersion": 1,
       "position": [
         200,
@@ -14,15 +31,26 @@
     },
     {
       "parameters": {
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/domain_exporter.py?ref=main",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "githubApi",
-        "options": {}
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.body.issue.labels || []).map(l => l.name).includes('bug') || $json.body.label?.name === 'bug' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
       },
-      "id": "fetch-source-file",
-      "name": "Fetch Source Code (GitHub API)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "filter-bug-label",
+      "name": "Is Bug Label?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "position": [
         440,
         360
@@ -30,10 +58,10 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\n\nreturn {\n  json: {\n    code: rawCode,\n    file_sha: $json.sha,\n    issue_number: 28,\n    issue_title: 'ZeroDivisionError in calculate_domain_score when domain list is empty'\n  }\n};\n"
+        "jsCode": "\nconst body = $('GitHub Issues Trigger').first().json.body;\nconst issue = body.issue || body;\n\nreturn {\n  json: {\n    issue_number: issue.number,\n    issue_title: issue.title,\n    issue_body: issue.body || '',\n    branch_name: `fix/issue-${issue.number}-autofix`\n  }\n};\n"
       },
-      "id": "decode-source-code",
-      "name": "Decode Source Code",
+      "id": "extract-issue-metadata",
+      "name": "Extract Dynamic Issue Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -43,15 +71,106 @@
     },
     {
       "parameters": {
+        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/trees/main?recursive=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-repo-tree",
+      "name": "Fetch Repo Tree (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        360
+      ]
+    },
+    {
+      "parameters": {
         "promptType": "define",
-        "text": "=Ты — старший Python-разработчик.\nИсправь баг в коде на основе баг-репорта.\n\nБАГ:\nВ функции calculate_average_score при пустом списке domains_data возникает необработанное исключение ZeroDivisionError (деление на ноль).\nНеобходимо добавить проверку if not domains_data: return 0.0 перед вычислением среднего.\n\nТЕКУЩИЙ ИСХОДНЫЙ КОД:\n{{ $json.code }}\n\nВерни ТОЛЬКО полный исправленный Python-код файла. Без каких-либо пояснений, без вводных слов и БЕЗ маркдаун-тегов (без обратных кавычек ```python)."
+        "text": "=Ты — старший инженер-архитектор.\nНа основе заголовка и описания бага определи, в каком именно Python-файле репозитория находится ошибка.\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nСПИСОК ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path.endsWith('.py') && !item.path.startsWith('tests/')).map(item => item.path).join('\\n') }}\n\nВерни ТОЛЬКО имя файла (например: domain_exporter.py или services.py). Без каких-либо лишних слов, без кавычек и без форматирования."
+      },
+      "id": "ai-locate-file",
+      "name": "AI File Locator (LLM)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-locator",
+      "name": "OpenAI Chat Model (Locator)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet targetFile = ($json.text || $json.output || '').trim();\ntargetFile = targetFile.replace(/[`'\"\\n]/g, '').trim();\nif (!targetFile.endsWith('.py')) {\n  targetFile = 'domain_exporter.py'; // безопасный фоллбэк\n}\n\nreturn {\n  json: {\n    target_file: targetFile\n  }\n};\n"
+      },
+      "id": "clean-target-filename",
+      "name": "Clean Target Filename",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $json.target_file }}?ref=main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-source-file",
+      "name": "Fetch Target Source File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\n\nreturn {\n  json: {\n    code: rawCode,\n    file_sha: $json.sha,\n    target_file: $('Clean Target Filename').first().json.target_file\n  }\n};\n"
+      },
+      "id": "decode-source-code",
+      "name": "Decode Source Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — Senior Python Developer.\nИсправь баг в файле {{ $json.target_file }} на основе баг-репорта.\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\n{{ $('Extract Dynamic Issue Data').first().json.issue_title }}\n{{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nТЕКУЩИЙ ИСХОДНЫЙ КОД:\n{{ $json.code }}\n\nЗАДАЧА:\nВнеси аккуратный, точный фикс. Устрани описанную ошибку (например, ZeroDivisionError или граничный случай).\nВерни ТОЛЬКО полный исправленный Python-код файла целиком. Без пояснений, без markdown-тегов (без обратных кавычек ```python)."
       },
       "id": "ai-code-fixer",
       "name": "AI Code Fixer (LLM)",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
       "position": [
-        880,
+        1980,
         360
       ]
     },
@@ -66,24 +185,24 @@
         "options": {}
       },
       "id": "ai-model-fixer",
-      "name": "OpenAI Chat Model (GPT-4o-mini)",
+      "name": "OpenAI Chat Model (Fixer)",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
       "position": [
-        880,
+        1980,
         560
       ]
     },
     {
       "parameters": {
-        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\n// Очищаем от возможных markdown тегов\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nconst fixedB64 = Buffer.from(fixedText, 'utf-8').toString('base64');\nconst originalSha = $('Decode Source Code').first().json.file_sha;\nconst issueNum = $('Decode Source Code').first().json.issue_number;\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: originalSha,\n    issue_number: issueNum,\n    branch_name: `fix/n8n-issue-${issueNum}-zerodivision`\n  }\n};\n"
+        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nconst fixedB64 = Buffer.from(fixedText, 'utf-8').toString('base64');\nconst meta = $('Extract Dynamic Issue Data').first().json;\nconst fileMeta = $('Decode Source Code').first().json;\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: fileMeta.file_sha,\n    target_file: fileMeta.target_file,\n    issue_number: meta.issue_number,\n    issue_title: meta.issue_title,\n    branch_name: meta.branch_name\n  }\n};\n"
       },
       "id": "prepare-patch-node",
       "name": "Prepare Patch & Base64",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
+        2200,
         360
       ]
     },
@@ -99,7 +218,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
+        2420,
         360
       ]
     },
@@ -129,14 +248,14 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1540,
+        2640,
         360
       ]
     },
     {
       "parameters": {
         "method": "PUT",
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/domain_exporter.py",
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $('Prepare Patch & Base64').first().json.target_file }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "sendBody": true,
@@ -144,7 +263,7 @@
           "parameters": [
             {
               "name": "message",
-              "value": "=fix: Prevent ZeroDivisionError on empty domain list in calculate_average_score (closes #{{ $('Prepare Patch & Base64').first().json.issue_number }})"
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Patch & Base64').first().json.issue_number }} in {{ $('Prepare Patch & Base64').first().json.target_file }} (closes #{{ $('Prepare Patch & Base64').first().json.issue_number }})"
             },
             {
               "name": "branch",
@@ -167,7 +286,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1760,
+        2860,
         360
       ]
     },
@@ -182,7 +301,7 @@
           "parameters": [
             {
               "name": "title",
-              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Patch & Base64').first().json.issue_number }} (ZeroDivisionError)"
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Patch & Base64').first().json.issue_number }} ({{ $('Prepare Patch & Base64').first().json.issue_title }})"
             },
             {
               "name": "head",
@@ -194,7 +313,7 @@
             },
             {
               "name": "body",
-              "value": "=## Автономное исправление бага через n8n (Super Result)\n\nНа основе баг-репорта **#{{ $('Prepare Patch & Base64').first().json.issue_number }}** сформирован и применён патч для предотвращения `ZeroDivisionError: division by zero` в `domain_exporter.py`.\n\nCloses #{{ $('Prepare Patch & Base64').first().json.issue_number }}"
+              "value": "=## Автономное исправление бага через n8n (Super Result)\n\nНа основе баг-репорта **#{{ $('Prepare Patch & Base64').first().json.issue_number }}** (`{{ $('Prepare Patch & Base64').first().json.issue_title }}`) автоматически локализован файл `{{ $('Prepare Patch & Base64').first().json.target_file }}` и сформирован патч.\n\nCloses #{{ $('Prepare Patch & Base64').first().json.issue_number }}"
             }
           ]
         },
@@ -205,7 +324,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
+        3080,
         360
       ]
     },
@@ -224,7 +343,7 @@
             },
             {
               "name": "commit_title",
-              "value": "=fix: Auto-merge PR #{{ $json.number }} into main (closes #28)"
+              "value": "=fix: Auto-merge PR #{{ $json.number }} into main (closes #{{ $('Prepare Patch & Base64').first().json.issue_number }})"
             }
           ]
         },
@@ -235,24 +354,90 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2200,
+        3300,
         360
       ]
     }
   ],
   "connections": {
-    "When clicking ‘Test workflow’": {
+    "GitHub Issues Trigger": {
       "main": [
         [
           {
-            "node": "Fetch Source Code (GitHub API)",
+            "node": "Is Bug Label?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Fetch Source Code (GitHub API)": {
+    "Is Bug Label?": {
+      "main": [
+        [
+          {
+            "node": "Extract Dynamic Issue Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Dynamic Issue Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Repo Tree (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Repo Tree (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "AI File Locator (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Locator)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI File Locator (LLM)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI File Locator (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Clean Target Filename",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Target Filename": {
+      "main": [
+        [
+          {
+            "node": "Fetch Target Source File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Target Source File": {
       "main": [
         [
           {
@@ -274,7 +459,7 @@
         ]
       ]
     },
-    "OpenAI Chat Model (GPT-4o-mini)": {
+    "OpenAI Chat Model (Fixer)": {
       "ai_languageModel": [
         [
           {
