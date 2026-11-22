@@ -58,7 +58,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst triggerData = $('GitHub Issues Trigger').first().json;\nconst body = triggerData.body || triggerData;\nconst issue = body.issue || body;\n\nconst issueNum = issue.number || 28;\nconst issueTitle = issue.title || 'ZeroDivisionError in calculate_domain_score when domain list is empty';\nconst issueBody = issue.body || '';\nconst suffix = Math.floor(Date.now() / 1000).toString().slice(-4);\n\nreturn {\n  json: {\n    issue_number: issueNum,\n    issue_title: issueTitle,\n    issue_body: issueBody,\n    branch_name: `fix/issue-${issueNum}-autofix-${suffix}`\n  }\n};\n"
+        "jsCode": "\nconst triggerData = $('GitHub Issues Trigger').first().json;\nconst body = triggerData.body || triggerData;\nconst issue = body.issue || body;\nconst repo = triggerData.repository || body.repository || {};\n\nconst issueNum = issue.number || 1;\nconst issueTitle = issue.title || 'Bug Report';\nconst issueBody = issue.body || '';\nconst repoFullName = repo.full_name || 'Vyvch/drop_ru_domain_finder';\nconst suffix = Math.floor(Date.now() / 1000).toString().slice(-4);\n\nreturn {\n  json: {\n    issue_number: issueNum,\n    issue_title: issueTitle,\n    issue_body: issueBody,\n    repo_full_name: repoFullName,\n    branch_name: `fix/issue-${issueNum}-autofix-${suffix}`\n  }\n};\n"
       },
       "id": "extract-issue-metadata",
       "name": "Extract Dynamic Issue Data",
@@ -71,7 +71,7 @@
     },
     {
       "parameters": {
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/trees/main?recursive=1",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/git/trees/main?recursive=1",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "options": {}
@@ -88,7 +88,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — Principal Software Architect.\nНа основе баг-репорта определи список Python-файлов репозитория, которые требуют изменения (основной код и/или тесты).\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nДЕРЕВО ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path.endsWith('.py')).map(item => item.path).join('\\n') }}\n\nВЕРНИ СТРОГО JSON со списком затронутых файлов:\n{\n  \"target_files\": [\"domain_exporter.py\"],\n  \"plan\": \"краткое объяснение, какие файлы нужно обновить и почему\"\n}"
+        "text": "=Ты — Principal Software Architect.\nНа основе баг-репорта определи список файлов репозитория, которые требуют изменения (основной код и/или тесты).\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nДЕРЕВО ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path && !item.path.startsWith('.')).map(item => item.path).join('\\n') }}\n\nВЕРНИ СТРОГО JSON со списком файлов из дерева выше и планом исправления:\n{\n  \"target_files\": [\"src/example_module.py\", \"tests/test_example_module.py\"],\n  \"plan\": \"краткое пошаговое описание необходимых изменений\"\n}"
       },
       "id": "ai-locate-files-multi",
       "name": "AI File Locator (Multi-file)",
@@ -120,7 +120,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { target_files: ['domain_exporter.py'] };\n}\n\nlet files = Array.isArray(parsed.target_files) ? parsed.target_files : ['domain_exporter.py'];\nfiles = files.filter(f => typeof f === 'string' && f.endsWith('.py'));\nif (files.length === 0) files = ['domain_exporter.py'];\n\nconst mainTree = $('Fetch Repo Tree (GitHub API)').first().json;\n\nreturn {\n  json: {\n    target_files: files,\n    primary_file: files[0],\n    plan: parsed.plan || 'Исправление ошибки',\n    tree_sha: mainTree.sha\n  }\n};\n"
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = {};\n}\n\nconst mainTree = $('Fetch Repo Tree (GitHub API)').first().json;\nconst availableFiles = (mainTree.tree || []).filter(item => item.path && !item.path.startsWith('.')).map(item => item.path);\n\nlet files = Array.isArray(parsed.target_files) ? parsed.target_files : [];\n// Оставляем только те файлы, которые реально существуют в дереве репозитория\nfiles = files.filter(f => typeof f === 'string' && availableFiles.includes(f));\n\n// Если модель галлюцинировала несуществующим файлом, берем первый подходящий файл кода из репозитория\nif (files.length === 0 && availableFiles.length > 0) {\n  const codeFiles = availableFiles.filter(p => p.endsWith('.py') || p.endsWith('.ts') || p.endsWith('.js'));\n  files = [codeFiles[0] || availableFiles[0]];\n}\n\nreturn {\n  json: {\n    target_files: files,\n    primary_file: files[0] || '',\n    plan: parsed.plan || 'Автономное исправление ошибки',\n    tree_sha: mainTree.sha\n  }\n};\n"
       },
       "id": "parse-target-files",
       "name": "Parse Target Files List",
@@ -133,7 +133,7 @@
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $json.primary_file }}?ref=main",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/contents/{{ $json.primary_file }}?ref=main",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "options": {}
@@ -209,7 +209,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — строгий Principal Code Reviewer & AI-Судья (Critic / Evaluator).\nТвоя задача — беспристрастно и строго проверить предложенное исправление бага.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nПРЕДЛОЖЕННЫЙ ПАТЧ ДЛЯ ФАЙЛА {{ $json.primary_file }}:\n{{ $json.candidate_code }}\n\nКРИТЕРИИ ОЦЕНКИ:\n1. Исправляет ли патч указанную ошибку (например, проверяет пустой список доменов для предотвращения ZeroDivisionError)?\n2. Сохранена ли корректная сигнатура функции, типизация и возвращаемые значения?\n3. Нет ли синтаксических ошибок, регрессий или удалённого нужного кода?\n\nФОРМАТ ОТВЕТА (строго JSON):\n{\n  \"verdict\": \"APPROVED\" или \"REJECTED\",\n  \"reason\": \"Если REJECTED — подробно опиши, что именно не так и как это переделать. Если APPROVED — кратко подтверди корректность\",\n  \"confidence\": 0.95\n}"
+        "text": "=Ты — строгий Principal Code Reviewer & AI-Судья (Critic / Evaluator).\nТвоя задача — беспристрастно и строго проверить предложенное исправление бага.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\nЗаголовок: {{ $json.issue_title }}\nОписание: {{ $json.issue_body }}\n\nПРЕДЛОЖЕННЫЙ ПАТЧ ДЛЯ ФАЙЛА {{ $json.primary_file }}:\n{{ $json.candidate_code }}\n\nКРИТЕРИИ ОЦЕНКИ:\n1. Полностью ли патч устраняет первопричину (root cause) проблемы, описанной в баг-репорте?\n2. Сохранена ли обратная совместимость, сигнатуры функций/методов, аннотации типов и форматы возвращаемых данных?\n3. Нет ли синтаксических ошибок, регрессий, утечек или случайного удаления существующей бизнес-логики?\n4. Соответствует ли реализация принципам чистого кода и защитного программирования (defensive programming)?\n\nФОРМАТ ОТВЕТА (строго JSON):\n{\n  \"verdict\": \"APPROVED\" или \"REJECTED\",\n  \"reason\": \"Если REJECTED — подробно опиши, что именно не так и как это исправить. Если APPROVED — кратко подтверди корректность\",\n  \"confidence\": 0.95\n}"
       },
       "id": "ai-judge-critic",
       "name": "AI Judge (Critic / Reviewer)",
@@ -281,7 +281,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst item = $json;\nconst fixedB64 = Buffer.from(item.candidate_code, 'utf-8').toString('base64');\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: item.file_sha,\n    target_file: item.primary_file,\n    all_target_files: item.target_files,\n    issue_number: item.issue_number,\n    issue_title: item.issue_title,\n    branch_name: item.branch_name,\n    judge_critique: item.critique\n  }\n};\n"
+        "jsCode": "\nconst item = $json;\nconst fixedB64 = Buffer.from(item.candidate_code, 'utf-8').toString('base64');\nconst meta = $('Extract Dynamic Issue Data').first().json;\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: item.file_sha,\n    target_file: item.primary_file,\n    all_target_files: item.target_files,\n    issue_number: item.issue_number,\n    issue_title: item.issue_title,\n    branch_name: item.branch_name,\n    repo_full_name: meta.repo_full_name,\n    judge_critique: item.critique\n  }\n};\n"
       },
       "id": "prepare-final-patch",
       "name": "Prepare Approved Patch",
@@ -294,7 +294,7 @@
     },
     {
       "parameters": {
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/ref/heads/main",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/git/ref/heads/main",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "options": {}
@@ -311,7 +311,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/git/refs",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/git/refs",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "sendBody": true,
@@ -342,7 +342,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $('Prepare Approved Patch').first().json.target_file }}",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/contents/{{ $('Prepare Approved Patch').first().json.target_file }}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "sendBody": true,
@@ -381,7 +381,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.github.com/repos/Vyvch/drop_ru_domain_finder/pulls",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/pulls",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "sendBody": true,
@@ -420,7 +420,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/pulls/{{ $json.number }}/merge",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/pulls/{{ $json.number }}/merge",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "sendBody": true,
