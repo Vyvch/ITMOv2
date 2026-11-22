@@ -241,7 +241,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { verdict: 'APPROVED', reason: 'Auto-approved fallback' };\n}\n\nconst candidate = $('Format Candidate Fix').first().json;\nconst currentAttempt = candidate.attempt || 1;\nconst maxAttempts = candidate.max_attempts || 3;\n\nlet verdict = (parsed.verdict || 'REJECTED').toUpperCase().trim();\nlet isApproved = verdict === 'APPROVED';\n\nif (!isApproved && currentAttempt >= maxAttempts) {\n  isApproved = true;\n  verdict = 'APPROVED_LIMIT_REACHED';\n}\n\nreturn {\n  json: {\n    ...candidate,\n    verdict: verdict,\n    critique: parsed.reason || '',\n    is_approved: isApproved,\n    attempt: currentAttempt + 1\n  }\n};\n"
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { verdict: 'REJECTED', reason: 'Failed to parse review format' };\n}\n\nconst candidate = $('Format Candidate Fix').first().json;\nconst currentAttempt = candidate.attempt || 1;\nconst maxAttempts = candidate.max_attempts || 3;\n\nlet verdict = (parsed.verdict || 'REJECTED').toUpperCase().trim();\nlet isApproved = verdict === 'APPROVED';\nlet isLimitReached = !isApproved && (currentAttempt >= maxAttempts);\n\nreturn {\n  json: {\n    ...candidate,\n    verdict: verdict,\n    critique: parsed.reason || 'Замечания не указаны',\n    is_approved: isApproved,\n    attempt: currentAttempt + 1,\n    max_attempts: maxAttempts,\n    is_limit_reached: isLimitReached\n  }\n};\n"
       },
       "id": "evaluate-judge-verdict",
       "name": "Evaluate Judge Verdict",
@@ -447,6 +447,73 @@
         4260,
         360
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_limit_reached }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-limit-reached",
+      "name": "Attempts Limit Reached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        940,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/issues/{{ $('Extract Dynamic Issue Data').first().json.issue_number }}/comments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    body: `🤖 **Автономный AI-Fixer не смог устранить проблему за ${$json.max_attempts} попытки.**\\n\\nПатч был отклонён AI-Судьёй (Code Reviewer) со следующими замечаниями:\\n> ${$json.critique}\\n\\nЗадача эскалирована разработчикам. Повешен лейбл \\`needs-human-review\\`.`\n  })\n}}",
+        "options": {}
+      },
+      "id": "post-escalation-comment",
+      "name": "Post Escalation Comment (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/issues/{{ $('Extract Dynamic Issue Data').first().json.issue_number }}/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    labels: [\"needs-human-review\"]\n  })\n}}",
+        "options": {}
+      },
+      "id": "add-escalation-label",
+      "name": "Add Escalation Label (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        420
+      ]
     }
   ],
   "connections": {
@@ -626,7 +693,7 @@
         ],
         [
           {
-            "node": "AI Code Fixer (Generator)",
+            "node": "Attempts Limit Reached?",
             "type": "main",
             "index": 0
           }
@@ -682,6 +749,35 @@
         [
           {
             "node": "Auto-Merge PR to Main",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attempts Limit Reached?": {
+      "main": [
+        [
+          {
+            "node": "Post Escalation Comment (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Code Fixer (Generator)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Escalation Comment (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Add Escalation Label (GitHub API)",
             "type": "main",
             "index": 0
           }
