@@ -1,7 +1,8 @@
 # Отчёт по Практике 8: Добавляем фронтенд к своему проекту с помощью AI (12 / 12 баллов)
 
 * **Студент:** Владислав Пивцаев (Vyvch)
-* **Целевой репозиторий проекта с фронтендом:** [https://github.com/Vyvch/drop_ru_domain_finder/tree/feat/practice_08_frontend](https://github.com/Vyvch/drop_ru_domain_finder/tree/feat/practice_08_frontend)
+* **Целевой репозиторий проекта с фронтендом:** [https://github.com/Vyvch/drop_ru_domain_finder](https://github.com/Vyvch/drop_ru_domain_finder)
+* **Pull Request с реализацией:** [drop_ru_domain_finder PR #39](https://github.com/Vyvch/drop_ru_domain_finder/pull/39)
 * **Ветка с реализацией:** `feat/practice_08_frontend`
 * **Интерактивный AI-макет/прототип:** [`prototype/index.html`](./prototype/index.html)
 * **Библиотека компонентов:** [DaisyUI](https://daisyui.com/) + [Tailwind CSS](https://tailwindcss.com/)
