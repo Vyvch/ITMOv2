@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерактивный прототип: DropDomain (Практика 8)</title>
+    <!-- Tailwind CSS + DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        code, .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .focus-visible-custom:focus-visible {
+            outline: 2px solid #6366F1 !important;
+            outline-offset: 2px !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
+
+    <!-- Top Prototype State Switcher (Панель управления прототипом для проверяющего) -->
+    <div class="bg-indigo-950/80 border-b border-indigo-500/30 px-4 py-2.5 sticky top-0 z-50 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2">
+                <span class="badge badge-primary font-bold text-[11px] uppercase tracking-wider">AI Prototype</span>
+                <span class="font-medium text-slate-300 hidden sm:inline">Переключатель состояний для ревью:</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5" id="state-buttons">
+                <button onclick="setState('default')" class="btn btn-xs btn-outline btn-primary active-state-btn" data-state="default">1. Главный экран</button>
+                <button onclick="setState('input')" class="btn btn-xs btn-outline" data-state="input">2. Ввод / Валидация</button>
+                <button onclick="setState('loading')" class="btn btn-xs btn-outline" data-state="loading">3. Загрузка / Скелетон</button>
+                <button onclick="setState('empty')" class="btn btn-xs btn-outline" data-state="empty">4. Пустая выдача</button>
+                <button onclick="setState('error')" class="btn btn-xs btn-outline" data-state="error">5. Ошибка сети</button>
+                <button onclick="setState('modal')" class="btn btn-xs btn-outline" data-state="modal">6. Модалка Wayback</button>
+            </div>
+        </div>
+        <div class="max-w-7xl mx-auto mt-1 text-[11px] text-indigo-300/80 flex items-center gap-2">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="state-description">Отображение каталога освобождающихся доменов со сводкой и фильтрами.</span>
+        </div>
+    </div>
+
+    <!-- Main Navigation Bar -->
+    <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-400 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20">
+                    D
+                </div>
+                <div>
+                    <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
+                        DropDomain <span class="badge badge-sm badge-neutral font-normal text-slate-400">ru / su / рф</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Мониторинг освобождающихся доменов и веб-архива</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <div class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800/60 rounded-lg border border-slate-700/50 text-xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span class="text-slate-400">Освобождается сегодня:</span>
+                    <span class="font-semibold text-slate-200">12 450</span>
+                </div>
+                <button class="btn btn-sm btn-ghost gap-1.5 text-xs text-slate-300 border border-slate-700/60 hover:bg-slate-800 focus-visible-custom" id="export-csv-btn">
+                    <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Экспорт CSV
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-1 w-full flex flex-col gap-6">
+
+        <!-- Tabs: Все домены / Топ-20 AI -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div class="tabs tabs-boxed bg-slate-900 border border-slate-800 p-1">
+                <a class="tab tab-active text-xs font-semibold px-4 transition-all" id="tab-all">Все освобождающиеся домены</a>
+                <a class="tab text-xs font-semibold px-4 text-slate-400 transition-all hover:text-slate-200" id="tab-top">🔥 Топ-20 от AI (DeepSeek + WHOIS)</a>
+            </div>
+            <div class="text-xs text-slate-400 hidden sm:block">
+                Синхронизировано с реестром nic.ru
+            </div>
+        </div>
+
+        <!-- Search & Filter Controls Card -->
+        <div class="card bg-slate-900/70 border border-slate-800 shadow-xl p-4 sm:p-5">
+            <form id="search-form" class="flex flex-col gap-3" onsubmit="return false;">
+                <!-- Main Search Row -->
+                <div class="flex flex-col sm:flex-row gap-2.5">
+                    <div class="relative flex-1">
+                        <label for="regex-input" class="sr-only">Поисковый запрос или регулярное выражение</label>
+                        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="regex-input" 
+                            class="input input-bordered w-full pl-10 pr-24 bg-slate-950/70 border-slate-700 text-sm focus-visible-custom font-mono"
+                            placeholder="Фильтр RE2 (например, ^[a-z]{3,4}\.ru$ или shop.*\.ru)"
+                            autocomplete="off"
+                        >
+                        <div class="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                            <span class="badge badge-sm badge-neutral font-mono text-[10px] text-slate-400">RE2</span>
+                        </div>
+                    </div>
+
+                    <!-- Search Button with Loading Spinner & Protection -->
+                    <button type="submit" id="search-submit-btn" class="btn btn-primary bg-indigo-600 hover:bg-indigo-500 border-none px-6 text-xs font-semibold focus-visible-custom">
+                        <span id="search-btn-spinner" class="loading loading-spinner loading-xs hidden"></span>
+                        <span id="search-btn-text">Найти домены</span>
+                    </button>
+                </div>
+
+                <!-- Validation Error Box (State 2) -->
+                <div id="validation-error-box" class="hidden text-xs text-rose-400 bg-rose-950/30 border border-rose-800/40 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span>Ошибка синтаксиса RE2: незакрытая скобка в выражении.</span>
+                </div>
+
+                <!-- Date Filter Chips -->
+                <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                    <div class="flex flex-wrap items-center gap-1.5" id="date-chips">
+                        <span class="text-slate-400 mr-1 font-medium">Дата:</span>
+                        <button type="button" class="btn btn-xs btn-primary">Все даты</button>
+                        <button type="button" class="btn btn-xs btn-ghost text-slate-400 hover:text-white">Сегодня (23 Ноя)</button>
+                        <button type="button" class="btn btn-xs btn-ghost text-slate-400 hover:text-white">Завтра (24 Ноя)</button>
+                        <button type="button" class="btn btn-xs btn-ghost text-slate-400 hover:text-white">Послезавтра (25 Ноя)</button>
+                    </div>
+                    <div class="text-[11px] text-slate-500 flex items-center gap-2">
+                        <span>Найдено: <b class="text-slate-200" id="found-count">12 450</b> доменов</span>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- ERROR STATE VIEW (State 5) -->
+        <div id="view-error" class="hidden card bg-rose-950/20 border border-rose-800/50 p-6 text-center flex flex-col items-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-rose-900/50 text-rose-400 flex items-center justify-center">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold text-rose-200">Ошибка загрузки данных из реестра</h3>
+            <p class="text-xs text-rose-300/80 max-w-md">Сервер временно недоступен или вернул код ошибки 503 Service Unavailable. Повторите запрос через несколько секунд.</p>
+            <button class="btn btn-sm btn-outline btn-error mt-1 text-xs focus-visible-custom" onclick="setState('default')">Повторить попытку</button>
+        </div>
+
+        <!-- EMPTY STATE VIEW (State 4) -->
+        <div id="view-empty" class="hidden card bg-slate-900/40 border border-slate-800/60 p-12 text-center flex flex-col items-center gap-3">
+            <div class="w-14 h-14 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h3 class="text-base font-semibold text-slate-200">Доменов по вашему запросу не найдено</h3>
+            <p class="text-xs text-slate-400 max-w-sm">Попробуйте ослабить регулярное выражение или выбрать более широкий диапазон дат.</p>
+            <button class="btn btn-sm btn-ghost border border-slate-700 text-xs text-indigo-400 mt-2 focus-visible-custom" onclick="setState('default')">Сбросить фильтры</button>
+        </div>
+
+        <!-- SKELETON / LOADING VIEW (State 3) -->
+        <div id="view-loading" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <!-- 8 Skeleton cards -->
+            <div class="card bg-slate-900 border border-slate-800 p-4 space-y-3 animate-pulse">
+                <div class="h-4 bg-slate-800 rounded w-3/4"></div>
+                <div class="h-3 bg-slate-800 rounded w-1/2"></div>
+                <div class="h-8 bg-slate-800 rounded mt-2"></div>
+            </div>
+            <div class="card bg-slate-900 border border-slate-800 p-4 space-y-3 animate-pulse">
+                <div class="h-4 bg-slate-800 rounded w-2/3"></div>
+                <div class="h-3 bg-slate-800 rounded w-1/3"></div>
+                <div class="h-8 bg-slate-800 rounded mt-2"></div>
+            </div>
+            <div class="card bg-slate-900 border border-slate-800 p-4 space-y-3 animate-pulse">
+                <div class="h-4 bg-slate-800 rounded w-4/5"></div>
+                <div class="h-3 bg-slate-800 rounded w-1/2"></div>
+                <div class="h-8 bg-slate-800 rounded mt-2"></div>
+            </div>
+            <div class="card bg-slate-900 border border-slate-800 p-4 space-y-3 animate-pulse">
+                <div class="h-4 bg-slate-800 rounded w-3/5"></div>
+                <div class="h-3 bg-slate-800 rounded w-2/5"></div>
+                <div class="h-8 bg-slate-800 rounded mt-2"></div>
+            </div>
+        </div>
+
+        <!-- SUCCESS / DEFAULT GRID VIEW (State 1 & 2) -->
+        <div id="view-default" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <!-- Domain Card 1 -->
+            <div class="card bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 transition-all p-4 flex flex-col justify-between gap-3 shadow-sm group">
+                <div>
+                    <div class="flex items-start justify-between gap-2">
+                        <span class="font-bold text-sm text-slate-100 group-hover:text-indigo-400 transition-colors font-mono tracking-tight break-all">
+                            shop-online.ru
+                        </span>
+                        <span class="badge badge-sm badge-neutral text-[10px] text-slate-400">.RU</span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Освобождается: <span class="text-slate-200 font-medium">2026-11-23</span>
+                    </div>
+                </div>
+                <button onclick="setState('modal')" class="btn btn-sm btn-ghost bg-slate-800/60 hover:bg-slate-800 text-xs text-indigo-300 w-full justify-between focus-visible-custom border border-slate-700/40">
+                    <span>Веб-архив</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+
+            <!-- Domain Card 2 -->
+            <div class="card bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 transition-all p-4 flex flex-col justify-between gap-3 shadow-sm group">
+                <div>
+                    <div class="flex items-start justify-between gap-2">
+                        <span class="font-bold text-sm text-slate-100 group-hover:text-indigo-400 transition-colors font-mono tracking-tight break-all">
+                            доставка-еды.рф
+                        </span>
+                        <span class="badge badge-sm badge-neutral text-[10px] text-slate-400">.РФ (IDN)</span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Освобождается: <span class="text-slate-200 font-medium">2026-11-23</span>
+                    </div>
+                </div>
+                <button onclick="setState('modal')" class="btn btn-sm btn-ghost bg-slate-800/60 hover:bg-slate-800 text-xs text-indigo-300 w-full justify-between focus-visible-custom border border-slate-700/40">
+                    <span>Веб-архив</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+
+            <!-- Domain Card 3 -->
+            <div class="card bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 transition-all p-4 flex flex-col justify-between gap-3 shadow-sm group">
+                <div>
+                    <div class="flex items-start justify-between gap-2">
+                        <span class="font-bold text-sm text-slate-100 group-hover:text-indigo-400 transition-colors font-mono tracking-tight break-all">
+                            cloudtech.ru
+                        </span>
+                        <span class="badge badge-sm badge-neutral text-[10px] text-slate-400">.RU</span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Освобождается: <span class="text-slate-200 font-medium">2026-11-24</span>
+                    </div>
+                </div>
+                <button onclick="setState('modal')" class="btn btn-sm btn-ghost bg-slate-800/60 hover:bg-slate-800 text-xs text-indigo-300 w-full justify-between focus-visible-custom border border-slate-700/40">
+                    <span>Веб-архив</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+
+            <!-- Domain Card 4 -->
+            <div class="card bg-slate-900/90 border border-slate-800/80 hover:border-slate-700 transition-all p-4 flex flex-col justify-between gap-3 shadow-sm group">
+                <div>
+                    <div class="flex items-start justify-between gap-2">
+                        <span class="font-bold text-sm text-slate-100 group-hover:text-indigo-400 transition-colors font-mono tracking-tight break-all">
+                            ai-market.su
+                        </span>
+                        <span class="badge badge-sm badge-neutral text-[10px] text-slate-400">.SU</span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                        Освобождается: <span class="text-slate-200 font-medium">2026-11-25</span>
+                    </div>
+                </div>
+                <button onclick="setState('modal')" class="btn btn-sm btn-ghost bg-slate-800/60 hover:bg-slate-800 text-xs text-indigo-300 w-full justify-between focus-visible-custom border border-slate-700/40">
+                    <span>Веб-архив</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- WAYBACK MACHINE MODAL (State 6) -->
+    <div id="wayback-modal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-start justify-between">
+                <div>
+                    <span class="badge badge-primary text-[10px] font-semibold uppercase tracking-wider mb-1">Wayback CDX History</span>
+                    <h3 class="text-lg font-bold text-white font-mono" id="modal-domain-title">cloudtech.ru</h3>
+                </div>
+                <button onclick="closeModal()" class="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-white focus-visible-custom" aria-label="Закрыть модальное окно">✕</button>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 gap-3 py-1">
+                <div class="bg-slate-950/60 border border-slate-800/70 rounded-xl p-3">
+                    <span class="text-[11px] text-slate-400">Снимков в веб-архиве</span>
+                    <p class="text-xl font-bold text-indigo-400 mt-0.5 font-mono">1 248</p>
+                </div>
+                <div class="bg-slate-950/60 border border-slate-800/70 rounded-xl p-3">
+                    <span class="text-[11px] text-slate-400">Статус в реестре</span>
+                    <p class="text-xl font-bold text-emerald-400 mt-0.5">Освобождается</p>
+                </div>
+            </div>
+
+            <!-- Timeline Timeline -->
+            <div class="space-y-2 text-xs">
+                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-800/40">
+                    <span class="text-slate-400">Первый снимок:</span>
+                    <span class="font-mono text-slate-200 font-semibold">2011-04-12</span>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/40 border border-slate-800/40">
+                    <span class="text-slate-400">Последний снимок:</span>
+                    <span class="font-mono text-slate-200 font-semibold">2026-10-15</span>
+                </div>
+            </div>
+
+            <!-- Modal Actions -->
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+                <button onclick="closeModal()" class="btn btn-sm btn-ghost text-xs focus-visible-custom">Закрыть (Esc)</button>
+                <a href="https://web.archive.org/web/*/cloudtech.ru" target="_blank" rel="noopener" class="btn btn-sm btn-primary bg-indigo-600 hover:bg-indigo-500 text-xs text-white focus-visible-custom gap-1.5">
+                    <span>Открыть в Wayback Machine</span>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stateDescriptions = {
+            'default': 'Отображение каталога освобождающихся доменов со сводкой и фильтрами.',
+            'input': 'Пользователь вводит поисковый запрос/регулярку (показана валидация синтаксиса и счетчик).',
+            'loading': 'Загрузка данных: кнопка поиска отключена (disabled), во избежание дабл-клика, отображаются скелетоны.',
+            'empty': 'По фильтру ничего не найдено: показан минималистичный Empty State с кнопкой быстрого сброса.',
+            'error': 'Ошибка сервера 503/сетевой сбой: показан информативный Alert с кнопкой повторной попытки.',
+            'modal': 'Инспекция домена: открыта доступная модалка с детальной историей Wayback CDX архива.'
+        };
+
+        function setState(state) {
+            // Update buttons active style
+            document.querySelectorAll('#state-buttons button').forEach(btn => {
+                if (btn.getAttribute('data-state') === state) {
+                    btn.classList.add('btn-primary');
+                } else {
+                    btn.classList.remove('btn-primary');
+                }
+            });
+
+            // Update description
+            document.getElementById('state-description').innerText = stateDescriptions[state] || '';
+
+            // Reset elements
+            const viewDefault = document.getElementById('view-default');
+            const viewLoading = document.getElementById('view-loading');
+            const viewEmpty = document.getElementById('view-empty');
+            const viewError = document.getElementById('view-error');
+            const valBox = document.getElementById('validation-error-box');
+            const regexInput = document.getElementById('regex-input');
+            const searchBtn = document.getElementById('search-submit-btn');
+            const searchSpinner = document.getElementById('search-btn-spinner');
+            const searchBtnText = document.getElementById('search-btn-text');
+            const modal = document.getElementById('wayback-modal');
+
+            // Hide all specialized views
+            viewDefault.classList.remove('hidden');
+            viewLoading.classList.add('hidden');
+            viewEmpty.classList.add('hidden');
+            viewError.classList.add('hidden');
+            valBox.classList.add('hidden');
+            modal.classList.add('hidden');
+            searchBtn.removeAttribute('disabled');
+            searchSpinner.classList.add('hidden');
+            searchBtnText.innerText = 'Найти домены';
+
+            if (state === 'default') {
+                regexInput.value = '';
+                document.getElementById('found-count').innerText = '12 450';
+            } else if (state === 'input') {
+                regexInput.value = 'shop.*(\\.ru';
+                valBox.classList.remove('hidden');
+                document.getElementById('found-count').innerText = '0';
+            } else if (state === 'loading') {
+                viewDefault.classList.add('hidden');
+                viewLoading.classList.remove('hidden');
+                searchBtn.setAttribute('disabled', 'true');
+                searchSpinner.classList.remove('hidden');
+                searchBtnText.innerText = 'Поиск...';
+            } else if (state === 'empty') {
+                viewDefault.classList.add('hidden');
+                viewEmpty.classList.remove('hidden');
+                document.getElementById('found-count').innerText = '0';
+            } else if (state === 'error') {
+                viewDefault.classList.add('hidden');
+                viewError.classList.remove('hidden');
+            } else if (state === 'modal') {
+                modal.classList.remove('hidden');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('wayback-modal').classList.add('hidden');
+            setState('default');
+        }
+
+        // Keyboard ESC to close modal
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initialize state from URL params if present
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialState = urlParams.get('state') || 'default';
+        setState(initialState);
+    </script>
+</body>
+</html>
