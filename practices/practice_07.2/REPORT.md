@@ -121,6 +121,15 @@ flowchart TD
      * Повесил защитный лейбл `needs-human-review`.
    * При повторных событиях нода `Is Bug Label?` за 5 мс уводит тикет в `False Branch`, исключая вмешательство робота в работу инженеров.
 
+3. **Второй сценарий авто-исправления на новом дефекте (Issue #36 -> PR #37):**
+   * Баг в `domain_exporter.py` (`ValueError: dict contains fields not in fieldnames` при экспорте записей с опциональными полями).
+   * Multi-file локатор определил целевой модуль и тесты: `domain_exporter.py` и `tests/test_domain_exporter.py`.
+   * Генератор реализовал объединение заголовков через `dict.fromkeys(...)` и защитные флаги `DictWriter` (`extrasaction="ignore"`, `restval=""`).
+   * AI-судья выдал вердикт `APPROVED`.
+   * Создан и автоматически смерджен [PR #37](https://github.com/Vyvch/drop_ru_domain_finder/pull/37).
+   * [Issue #36](https://github.com/Vyvch/drop_ru_domain_finder/issues/36) автоматически закрыт.
+   * Добавлен регрессионный тест, все unit-тесты проекта (143/143) успешно пройдены.
+
 ![Эскалация и лейбл needs-human-review](./screenshots/05_super_result_escalation_loop.jpg)
 
 ---
