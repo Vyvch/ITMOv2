@@ -88,6 +88,15 @@
         .domain-table-row:hover .copy-btn-inline {
             opacity: 1;
         }
+        /* Hidden elements must never show */
+        .hidden, [hidden], #search-error-box.hidden {
+            display: none !important;
+        }
+        #search-error-box:not(.hidden) {
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+        }
         /* Slide-over Drawer */
         #drawer-backdrop {
             display: none;
@@ -289,7 +298,7 @@
                 </div>
 
                 <!-- Сообщение об ошибке валидации RE2 (скрыто по умолчанию) -->
-                <div id="search-error-box" class="hidden px-3 py-1.5 rounded-[4px] bg-red-50 border border-red-200 text-error-red text-xs font-mono flex items-center justify-between">
+                <div id="search-error-box" class="hidden px-3 py-1.5 rounded-[4px] bg-red-50 border border-red-200 text-error-red text-xs font-mono items-center justify-between" style="display: none;">
                     <span id="search-error-text">Ошибка синтаксиса Google RE2: незакрытый квантификатор '['</span>
                     <button type="button" onclick="clearErrorDemo()" class="text-[11px] underline hover:no-underline text-error-red">Очистить</button>
                 </div>
@@ -685,6 +694,7 @@
             tableError.classList.add('hidden');
             tableRows.classList.remove('hidden');
             errorBox.classList.add('hidden');
+            errorBox.style.display = 'none';
             searchInput.classList.remove('border-error-red', 'bg-red-50/20');
             re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-emerald-50 text-success-green border border-emerald-200';
             re2Badge.textContent = 'RE2 OK';
@@ -699,6 +709,7 @@
                 re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-red-50 text-error-red border border-red-200';
                 re2Badge.textContent = 'RE2 ОШИБКА';
                 errorBox.classList.remove('hidden');
+                errorBox.style.display = 'flex';
                 document.getElementById('search-error-text').textContent = 'Ошибка синтаксиса Google RE2: незакрытый квантификатор \'[\'';
             } else if (state === 'loading') {
                 descEl.textContent = '3. Загрузка / Аккуратный скелетон без мерцания';
@@ -765,12 +776,14 @@
                 re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-red-50 text-error-red border border-red-200';
                 re2Badge.textContent = 'RE2 ОШИБКА';
                 errorBox.classList.remove('hidden');
+                errorBox.style.display = 'flex';
                 document.getElementById('search-error-text').textContent = 'Ошибка синтаксиса Google RE2: незакрытый квантификатор \'[\'';
             } else {
                 input.classList.remove('border-error-red', 'bg-red-50/20');
                 re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-emerald-50 text-success-green border border-emerald-200';
                 re2Badge.textContent = 'RE2 OK';
                 errorBox.classList.add('hidden');
+                errorBox.style.display = 'none';
             }
         }
 
@@ -778,6 +791,10 @@
             document.getElementById('search-input').value = '';
             onSearchInput('');
         }
+
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeDrawerDemo();
+        });
 
         function setDateFilter(f, btn) {
             document.querySelectorAll('.date-btn').forEach(b => {
