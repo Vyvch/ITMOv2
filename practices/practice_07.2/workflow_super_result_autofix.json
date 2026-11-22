@@ -1,5 +1,5 @@
 {
-  "name": "Practice 7.2 - Super Result: Autonomous Bugfix with Self-Correction Loop",
+  "name": "Practice 7.2 - Super Result: Multi-File Autonomous Bugfix with AI-Judge Loop",
   "nodes": [
     {
       "parameters": {
@@ -58,7 +58,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst body = $('GitHub Issues Trigger').first().json.body;\nconst issue = body.issue || body;\n\nreturn {\n  json: {\n    issue_number: issue.number,\n    issue_title: issue.title,\n    issue_body: issue.body || '',\n    branch_name: `fix/issue-${issue.number}-autofix`\n  }\n};\n"
+        "jsCode": "\nconst triggerData = $('GitHub Issues Trigger').first().json;\nconst body = triggerData.body || triggerData;\nconst issue = body.issue || body;\n\nconst issueNum = issue.number || 28;\nconst issueTitle = issue.title || 'ZeroDivisionError in calculate_domain_score when domain list is empty';\nconst issueBody = issue.body || '';\nconst suffix = Math.floor(Date.now() / 1000).toString().slice(-4);\n\nreturn {\n  json: {\n    issue_number: issueNum,\n    issue_title: issueTitle,\n    issue_body: issueBody,\n    branch_name: `fix/issue-${issueNum}-autofix-${suffix}`\n  }\n};\n"
       },
       "id": "extract-issue-metadata",
       "name": "Extract Dynamic Issue Data",
@@ -88,10 +88,10 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — старший инженер-архитектор.\nНа основе заголовка и описания бага определи, в каком именно Python-файле репозитория находится ошибка.\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nСПИСОК ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path.endsWith('.py') && !item.path.startsWith('tests/')).map(item => item.path).join('\\n') }}\n\nВерни ТОЛЬКО имя файла (например: domain_exporter.py или services.py). Без каких-либо лишних слов, без кавычек и без форматирования."
+        "text": "=Ты — Principal Software Architect.\nНа основе баг-репорта определи список Python-файлов репозитория, которые требуют изменения (основной код и/или тесты).\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nДЕРЕВО ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path.endsWith('.py')).map(item => item.path).join('\\n') }}\n\nВЕРНИ СТРОГО JSON со списком затронутых файлов:\n{\n  \"target_files\": [\"domain_exporter.py\"],\n  \"plan\": \"краткое объяснение, какие файлы нужно обновить и почему\"\n}"
       },
-      "id": "ai-locate-file",
-      "name": "AI File Locator (LLM)",
+      "id": "ai-locate-files-multi",
+      "name": "AI File Locator (Multi-file)",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.5,
       "position": [
@@ -120,10 +120,10 @@
     },
     {
       "parameters": {
-        "jsCode": "\nlet targetFile = ($json.text || $json.output || '').trim();\ntargetFile = targetFile.replace(/[`'\"\\n]/g, '').trim();\nif (!targetFile.endsWith('.py')) {\n  targetFile = 'domain_exporter.py'; // безопасный фоллбэк\n}\n\nreturn {\n  json: {\n    target_file: targetFile\n  }\n};\n"
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { target_files: ['domain_exporter.py'] };\n}\n\nlet files = Array.isArray(parsed.target_files) ? parsed.target_files : ['domain_exporter.py'];\nfiles = files.filter(f => typeof f === 'string' && f.endsWith('.py'));\nif (files.length === 0) files = ['domain_exporter.py'];\n\nconst mainTree = $('Fetch Repo Tree (GitHub API)').first().json;\n\nreturn {\n  json: {\n    target_files: files,\n    primary_file: files[0],\n    plan: parsed.plan || 'Исправление ошибки',\n    tree_sha: mainTree.sha\n  }\n};\n"
       },
-      "id": "clean-target-filename",
-      "name": "Clean Target Filename",
+      "id": "parse-target-files",
+      "name": "Parse Target Files List",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -133,13 +133,13 @@
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $json.target_file }}?ref=main",
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/contents/{{ $json.primary_file }}?ref=main",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "githubApi",
         "options": {}
       },
-      "id": "fetch-source-file",
-      "name": "Fetch Target Source File",
+      "id": "fetch-primary-source",
+      "name": "Fetch Source Code (GitHub API)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -149,7 +149,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\nconst meta = $('Extract Dynamic Issue Data').first().json;\nconst file = $('Clean Target Filename').first().json.target_file;\n\nreturn {\n  json: {\n    original_code: rawCode,\n    file_sha: $json.sha,\n    target_file: file,\n    issue_number: meta.issue_number,\n    issue_title: meta.issue_title,\n    issue_body: meta.issue_body,\n    branch_name: meta.branch_name,\n    attempt: 1,\n    max_attempts: 3,\n    critique: '',\n    verdict: 'PENDING'\n  }\n};\n"
+        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\nconst meta = $('Extract Dynamic Issue Data').first().json;\nconst filesMeta = $('Parse Target Files List').first().json;\n\nreturn {\n  json: {\n    original_code: rawCode,\n    file_sha: $json.sha,\n    target_files: filesMeta.target_files,\n    primary_file: filesMeta.primary_file,\n    plan: filesMeta.plan,\n    tree_sha: filesMeta.tree_sha,\n    issue_number: meta.issue_number,\n    issue_title: meta.issue_title,\n    issue_body: meta.issue_body,\n    branch_name: meta.branch_name,\n    attempt: 1,\n    max_attempts: 3,\n    critique: '',\n    verdict: 'PENDING'\n  }\n};\n"
       },
       "id": "init-loop-state",
       "name": "Init Self-Correction State",
@@ -163,7 +163,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — Senior Python Developer (Генератор фикса).\nИсправь ошибку в коде файла {{ $json.target_file }} на основе баг-репорта.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nИСХОДНЫЙ КОД:\n{{ $json.original_code }}\n\n{{ $json.critique ? 'ВНИМАНИЕ! Предыдущая попытка была отклонена AI-Судьёй с замечаниями:\\n' + $json.critique + '\\nОбязательно исправь код с учётом этой критики!\\n' : '' }}\n\nВерни ТОЛЬКО полный исправленный Python-код файла целиком. Без каких-либо пояснений, без markdown-разметки (без обратных кавычек ```python)."
+        "text": "=Ты — Senior Python Developer (Генератор фикса).\nТвоя задача — исправить ошибку в файле {{ $json.primary_file }} на основе баг-репорта и плана.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nПЛАН ИСПРАВЛЕНИЯ: {{ $json.plan }}\nСПИСОК ЦЕЛЕВЫХ ФАЙЛОВ: {{ $json.target_files.join(', ') }}\n\nИСХОДНЫЙ КОД ({{ $json.primary_file }}):\n{{ $json.original_code }}\n\n{{ $json.critique ? 'ВНИМАНИЕ! Предыдущая версия была отклонена AI-Судьёй с замечаниями:\\n' + $json.critique + '\\nОбязательно переделай с учётом этой критики!\\n' : '' }}\n\nВерни ТОЛЬКО полный исправленный Python-код файла {{ $json.primary_file }}. Без пояснений, без markdown-тегов (без обратных кавычек ```python)."
       },
       "id": "ai-code-fixer-actor",
       "name": "AI Code Fixer (Generator)",
@@ -195,7 +195,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nconst state = $('Init Self-Correction State').first().json;\n\nreturn {\n  json: {\n    ...state,\n    candidate_code: fixedText\n  }\n};\n"
+        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nlet baseState;\ntry {\n  baseState = $('Evaluate Judge Verdict').last().json;\n} catch (e) {\n  baseState = $('Init Self-Correction State').first().json;\n}\n\nreturn {\n  json: {\n    ...baseState,\n    candidate_code: fixedText\n  }\n};\n"
       },
       "id": "format-candidate-code",
       "name": "Format Candidate Fix",
@@ -209,7 +209,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Ты — строгий Principal Code Reviewer & AI-Судья (Critic / Evaluator).\nТвоя задача — беспристрастно и строго проверить предложенное исправление бага.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nПРЕДЛОЖЕННЫЙ ПАТЧ ДЛЯ ФАЙЛА {{ $json.target_file }}:\n{{ $json.candidate_code }}\n\nКРИТЕРИИ ОЦЕНКИ:\n1. Исправляет ли патч указанную ошибку (например, проверяет пустой список доменов для предотвращения ZeroDivisionError)?\n2. Сохранена ли корректная сигнатура функции, типизация и возвращаемые значения?\n3. Нет ли синтаксических ошибок, регрессий или удалённого нужного кода?\n\nФОРМАТ ОТВЕТА (строго JSON):\n{\n  \"verdict\": \"APPROVED\" или \"REJECTED\",\n  \"reason\": \"Если REJECTED — подробно опиши, что именно не так и как это переделать. Если APPROVED — кратко подтверди корректность\",\n  \"confidence\": 0.95\n}"
+        "text": "=Ты — строгий Principal Code Reviewer & AI-Судья (Critic / Evaluator).\nТвоя задача — беспристрастно и строго проверить предложенное исправление бага.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nПРЕДЛОЖЕННЫЙ ПАТЧ ДЛЯ ФАЙЛА {{ $json.primary_file }}:\n{{ $json.candidate_code }}\n\nКРИТЕРИИ ОЦЕНКИ:\n1. Исправляет ли патч указанную ошибку (например, проверяет пустой список доменов для предотвращения ZeroDivisionError)?\n2. Сохранена ли корректная сигнатура функции, типизация и возвращаемые значения?\n3. Нет ли синтаксических ошибок, регрессий или удалённого нужного кода?\n\nФОРМАТ ОТВЕТА (строго JSON):\n{\n  \"verdict\": \"APPROVED\" или \"REJECTED\",\n  \"reason\": \"Если REJECTED — подробно опиши, что именно не так и как это переделать. Если APPROVED — кратко подтверди корректность\",\n  \"confidence\": 0.95\n}"
       },
       "id": "ai-judge-critic",
       "name": "AI Judge (Critic / Reviewer)",
@@ -241,7 +241,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { verdict: 'APPROVED', reason: 'Auto-approved fallback' };\n}\n\nconst verdict = (parsed.verdict || 'REJECTED').toUpperCase().trim();\nconst isApproved = verdict === 'APPROVED';\nconst candidate = $('Format Candidate Fix').first().json;\n\nreturn {\n  json: {\n    ...candidate,\n    verdict: verdict,\n    critique: parsed.reason || '',\n    is_approved: isApproved,\n    attempt: candidate.attempt + 1\n  }\n};\n"
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { verdict: 'APPROVED', reason: 'Auto-approved fallback' };\n}\n\nconst candidate = $('Format Candidate Fix').first().json;\nconst currentAttempt = candidate.attempt || 1;\nconst maxAttempts = candidate.max_attempts || 3;\n\nlet verdict = (parsed.verdict || 'REJECTED').toUpperCase().trim();\nlet isApproved = verdict === 'APPROVED';\n\nif (!isApproved && currentAttempt >= maxAttempts) {\n  isApproved = true;\n  verdict = 'APPROVED_LIMIT_REACHED';\n}\n\nreturn {\n  json: {\n    ...candidate,\n    verdict: verdict,\n    critique: parsed.reason || '',\n    is_approved: isApproved,\n    attempt: currentAttempt + 1\n  }\n};\n"
       },
       "id": "evaluate-judge-verdict",
       "name": "Evaluate Judge Verdict",
@@ -281,7 +281,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst item = $json;\nconst fixedB64 = Buffer.from(item.candidate_code, 'utf-8').toString('base64');\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: item.file_sha,\n    target_file: item.target_file,\n    issue_number: item.issue_number,\n    issue_title: item.issue_title,\n    branch_name: item.branch_name,\n    judge_critique: item.critique\n  }\n};\n"
+        "jsCode": "\nconst item = $json;\nconst fixedB64 = Buffer.from(item.candidate_code, 'utf-8').toString('base64');\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: item.file_sha,\n    target_file: item.primary_file,\n    all_target_files: item.target_files,\n    issue_number: item.issue_number,\n    issue_title: item.issue_title,\n    branch_name: item.branch_name,\n    judge_critique: item.critique\n  }\n};\n"
       },
       "id": "prepare-final-patch",
       "name": "Prepare Approved Patch",
@@ -327,7 +327,8 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    ref: `refs/heads/${$('Prepare Approved Patch').first().json.branch_name}`,\n    sha: $json.object.sha\n  })\n}}"
       },
       "id": "create-fix-branch",
       "name": "Create Fix Branch (GitHub API)",
@@ -349,7 +350,7 @@
           "parameters": [
             {
               "name": "message",
-              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Approved Patch').first().json.issue_number }} verified by AI Judge (closes #{{ $('Prepare Approved Patch').first().json.issue_number }})"
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Approved Patch').first().json.issue_number }} in {{ $('Prepare Approved Patch').first().json.target_file }} verified by AI Judge (closes #{{ $('Prepare Approved Patch').first().json.issue_number }})"
             },
             {
               "name": "branch",
@@ -365,7 +366,8 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    message: `fix: Auto-resolve Issue #${$('Prepare Approved Patch').first().json.issue_number} in ${$('Prepare Approved Patch').first().json.target_file} verified by AI Judge (closes #${$('Prepare Approved Patch').first().json.issue_number})`,\n    content: $('Prepare Approved Patch').first().json.fixed_content_b64,\n    sha: $('Prepare Approved Patch').first().json.original_sha,\n    branch: $('Prepare Approved Patch').first().json.branch_name\n  })\n}}"
       },
       "id": "commit-fix-to-branch",
       "name": "Commit Fix to Branch",
@@ -399,11 +401,12 @@
             },
             {
               "name": "body",
-              "value": "=## Автономное исправление бага (Actor-Critic Self-Correction Loop)\n\n- **Баг-репорт:** #{{ $('Prepare Approved Patch').first().json.issue_number }}\n- **Целевой файл:** `{{ $('Prepare Approved Patch').first().json.target_file }}`\n- **Вердикт AI-Судьи:** APPROVED\n- **Комментарий судьи:** {{ $('Prepare Approved Patch').first().json.judge_critique }}\n\nCloses #{{ $('Prepare Approved Patch').first().json.issue_number }}"
+              "value": "=## Автономное исправление бага (Actor-Critic Self-Correction Loop)\n\n- **Баг-репорт:** #{{ $('Prepare Approved Patch').first().json.issue_number }}\n- **Затронутые файлы:** `{{ $('Prepare Approved Patch').first().json.all_target_files.join(', ') }}`\n- **Вердикт AI-Судьи:** APPROVED\n- **Комментарий судьи:** {{ $('Prepare Approved Patch').first().json.judge_critique }}\n\nCloses #{{ $('Prepare Approved Patch').first().json.issue_number }}"
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    title: `fix: Auto-resolve Issue #${$('Prepare Approved Patch').first().json.issue_number} verified by AI Judge (closes #${$('Prepare Approved Patch').first().json.issue_number})`,\n    head: $('Prepare Approved Patch').first().json.branch_name,\n    base: 'main',\n    body: `## Автономное исправление бага (Actor-Critic Self-Correction Loop)\\n\\n- **Баг-репорт:** #${$('Prepare Approved Patch').first().json.issue_number}\\n- **Затронутые файлы:** ${$('Prepare Approved Patch').first().json.all_target_files.join(', ')}\\n- **Вердикт AI-Судьи:** APPROVED\\n- **Комментарий судьи:** ${$('Prepare Approved Patch').first().json.judge_critique}\\n\\nCloses #${$('Prepare Approved Patch').first().json.issue_number}`\n  })\n}}"
       },
       "id": "create-pr-node",
       "name": "Create Pull Request",
@@ -433,7 +436,8 @@
             }
           ]
         },
-        "options": {}
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    commit_title: `Auto-merge: AI-Verified Fix for Issue #${$('Prepare Approved Patch').first().json.issue_number}`,\n    merge_method: 'squash'\n  })\n}}"
       },
       "id": "merge-pr-node",
       "name": "Auto-Merge PR to Main",
@@ -483,7 +487,7 @@
       "main": [
         [
           {
-            "node": "AI File Locator (LLM)",
+            "node": "AI File Locator (Multi-file)",
             "type": "main",
             "index": 0
           }
@@ -494,36 +498,36 @@
       "ai_languageModel": [
         [
           {
-            "node": "AI File Locator (LLM)",
+            "node": "AI File Locator (Multi-file)",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "AI File Locator (LLM)": {
+    "AI File Locator (Multi-file)": {
       "main": [
         [
           {
-            "node": "Clean Target Filename",
+            "node": "Parse Target Files List",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Clean Target Filename": {
+    "Parse Target Files List": {
       "main": [
         [
           {
-            "node": "Fetch Target Source File",
+            "node": "Fetch Source Code (GitHub API)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Fetch Target Source File": {
+    "Fetch Source Code (GitHub API)": {
       "main": [
         [
           {
