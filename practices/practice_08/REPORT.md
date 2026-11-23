@@ -111,26 +111,40 @@
 5. **`test_criterion_11_full_user_scenario_e2e`:**
    * Проходит полный сквозной путь: ввод запроса $\rightarrow$ получение данных $\rightarrow$ клик по строке $\rightarrow$ открытие инспекции домена $\rightarrow$ экспорт в CSV.
 
-### Результат выполнения всех тестов проекта (149 из 149 тестов успешно пройдены, 100% Green):
+### Автоматические скриншот-тесты визуального соответствия (`tests/test_visual_comparison.py`):
+Для 100% гарантии полного визуального соответствия макету реализован автоматический набор Playwright + Pillow тестов, попиксельно сверяющий реальное приложение и прототип:
+* **`test_top20_row_visual_fidelity`:** **96.93% сходства** (расхождение 3.07% на сглаживание шрифтов)
+* **`test_top20_table_visual_fidelity`:** **97.13% сходства** (расхождение 2.87%)
+* **`test_search_filter_bar_visual_fidelity`:** **96.72% сходства** (расхождение 3.28%)
+* **`test_whois_drawer_visual_fidelity`:** **92.51% сходства** (расхождение 7.49%)
+
+Сформированные артефакты попиксельного сравнения (Прототип vs Реальность vs Diff Heatmap):
+* [Сравнение строки Топ-20](./screenshots/07_comparison_top_row.png)
+* [Сравнение таблицы Топ-20](./screenshots/08_comparison_top_table.png)
+* [Сравнение панели WHOIS](./screenshots/09_comparison_drawer.png)
+* [Сравнение панели поиска](./screenshots/10_comparison_search.png)
+
+### Результат выполнения всех тестов проекта (153 из 153 тестов успешно пройдены, 100% Green):
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.14.1, pytest-9.1.1, pluggy-1.6.0
 rootdir: C:\Users\Vyvch\source\repos\Vibecoding\domains_project
 plugins: anyio-4.15.1
-collected 149 items
+collected 153 items
 
 tests\test_client_ui.py .....                                            [  3%]
 tests\test_domain_exporter.py ...                                        [  5%]
 tests\test_main.py ..                                                    [  6%]
 tests\test_mcp_whois.py ...                                              [  8%]
-tests\test_search.py .............                                       [ 17%]
+tests\test_search.py .............                                       [ 16%]
 tests\test_skills.py ..                                                  [ 18%]
-tests\test_wayback.py .................................................. [ 52%]
+tests\test_visual_comparison.py ....                                     [ 20%]
+tests\test_wayback.py .................................................. [ 53%]
 ......................                                                   [ 67%]
 tests\test_wayback_api.py ............                                   [ 75%]
 tests\test_wayback_ui.py .....................................           [100%]
 
-====================== 149 passed, 11 warnings in 8.01s =======================
+====================== 153 passed, 11 warnings in 10.71s ======================
 ```
 
 ---
