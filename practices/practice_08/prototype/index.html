@@ -126,30 +126,36 @@
         #drawer-backdrop.open {
             display: block;
         }
-        /* Top Switcher Bar for Reviewer */
-        .reviewer-bar {
-            background: #18181B;
-            color: #F4F4F5;
-            border-bottom: 1px solid #27272A;
-            height: 38px;
-            padding: 0 16px;
+        /* Floating State Switcher for Reviewer (вынесен из хедера в плавающий нижний док) */
+        .reviewer-dock {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 50;
+            background: rgba(24, 24, 27, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(63, 63, 70, 0.7);
+            border-radius: 9999px;
+            padding: 6px 14px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            gap: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+            font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
+            color: #E4E4E7;
         }
         .state-btn {
-            padding: 2px 8px;
-            border-radius: 4px;
+            padding: 3px 10px;
+            border-radius: 9999px;
             border: 1px solid #3F3F46;
             background: transparent;
             color: #D4D4D8;
             font-size: 11px;
             cursor: pointer;
             transition: all 0.12s ease;
+            white-space: nowrap;
         }
         .state-btn:hover {
             background: #27272A;
@@ -165,26 +171,8 @@
 </head>
 <body class="bg-base text-text min-h-screen flex flex-col antialiased">
 
-    <!-- Prototype Reviewer Switcher Bar (Панель переключения состояний для ревьюера) -->
-    <div class="reviewer-bar">
-        <div class="flex items-center gap-2">
-            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span class="font-semibold uppercase tracking-wider text-[10px] text-zinc-300">Интерактивный прототип (Практика 8)</span>
-            <span class="text-zinc-500 hidden md:inline">|</span>
-            <span id="current-state-desc" class="text-zinc-400 hidden sm:inline">1. Каталог всех доменов • Таблица данных высокой плотности</span>
-        </div>
-        <div class="flex items-center gap-1.5" id="state-buttons">
-            <button onclick="setPrototypeState('default')" class="state-btn active" data-state="default">1. Каталог</button>
-            <button onclick="setPrototypeState('input')" class="state-btn" data-state="input">2. Валидация RE2</button>
-            <button onclick="setPrototypeState('loading')" class="state-btn" data-state="loading">3. Скелетон</button>
-            <button onclick="setPrototypeState('empty')" class="state-btn" data-state="empty">4. Пусто</button>
-            <button onclick="setPrototypeState('error')" class="state-btn" data-state="error">5. Ошибка сети</button>
-            <button onclick="setPrototypeState('modal')" class="state-btn" data-state="modal">6. Панель WHOIS (440px)</button>
-        </div>
-    </div>
-
     <!-- 1. Верхняя панель навигации (минималистичная, высота 52px) -->
-    <header class="h-[52px] border-b border-muted-border bg-base px-6 sticky top-[38px] z-40 flex items-center justify-between">
+    <header class="h-[52px] border-b border-muted-border bg-base px-6 sticky top-0 z-40 flex items-center justify-between">
         <!-- Название сервиса слева -->
         <div class="flex items-center gap-3">
             <div class="w-6 h-6 rounded-[4px] bg-accent flex items-center justify-center font-mono font-bold text-xs text-white">
@@ -226,7 +214,7 @@
         <div id="section-all" class="flex flex-col gap-3">
 
             <!-- Липкая панель фильтров (sticky bar) -->
-            <div class="sticky top-[90px] z-30 bg-base pt-1 pb-3 border-b border-muted-border flex flex-col gap-2.5">
+            <div class="sticky top-[52px] z-30 bg-base pt-1 pb-3 border-b border-muted-border flex flex-col gap-2.5">
                 
                 <!-- Главная строка поиска с поддержкой регулярных выражений (Google RE2) -->
                 <div class="relative flex items-center">
@@ -668,6 +656,23 @@
 
         </div>
 
+    </aside>
+
+    <!-- Floating State Switcher for Reviewer (вынесен из хедера в плавающий нижний тулбар) -->
+    <aside class="reviewer-dock" aria-label="Переключатель состояний прототипа">
+        <div class="flex items-center gap-2 pr-2 border-r border-zinc-700">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="font-semibold uppercase tracking-wider text-[10px] text-zinc-300 hidden md:inline">Состояния AI-макета:</span>
+        </div>
+        <div class="flex items-center gap-1.5" id="state-buttons">
+            <button type="button" onclick="setPrototypeState('default')" class="state-btn active" data-state="default">1. Каталог</button>
+            <button type="button" onclick="setPrototypeState('input')" class="state-btn" data-state="input">2. Валидация RE2</button>
+            <button type="button" onclick="setPrototypeState('loading')" class="state-btn" data-state="loading">3. Скелетон</button>
+            <button type="button" onclick="setPrototypeState('empty')" class="state-btn" data-state="empty">4. Пусто</button>
+            <button type="button" onclick="setPrototypeState('error')" class="state-btn" data-state="error">5. Ошибка сети</button>
+            <button type="button" onclick="setPrototypeState('modal')" class="state-btn" data-state="modal">6. Панель WHOIS (440px)</button>
+        </div>
+        <span id="current-state-desc" class="hidden"></span>
     </aside>
 
     <!-- Notification Toast for Copy -->
