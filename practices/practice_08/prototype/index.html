@@ -825,8 +825,9 @@
         }
 
         function openDrawerDemo(domain, date, registrar, created, count, first, last, punycode) {
+            const cleanDate = (date || '').replace(/^Дата освобождения:\s*/i, '').trim();
             document.getElementById('drawer-domain-title').textContent = domain;
-            document.getElementById('drawer-drop-date').textContent = date;
+            document.getElementById('drawer-drop-date').textContent = cleanDate;
             
             const punyEl = document.getElementById('drawer-domain-punycode');
             if (punyEl) {
