@@ -1,0 +1,788 @@
+{
+  "name": "Practice 7.2 - Super Result: Multi-File Autonomous Bugfix with AI-Judge Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "owner": {
+          "__rl": true,
+          "value": "Vyvch",
+          "mode": "list",
+          "cachedResultName": "Vyvch"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "drop_ru_domain_finder",
+          "mode": "list",
+          "cachedResultName": "drop_ru_domain_finder"
+        },
+        "events": [
+          "issues"
+        ],
+        "options": {}
+      },
+      "id": "github-issues-trigger",
+      "name": "GitHub Issues Trigger",
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ((($json.body || $json).issue?.labels || []).map(l => l.name).includes('bug') || ($json.body || $json).label?.name === 'bug') && !((($json.body || $json).issue?.labels || []).map(l => l.name).includes('needs-human-review')) && (($json.body || $json).issue?.state || 'open') === 'open' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "filter-bug-label",
+      "name": "Is Bug Label?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        440,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst triggerData = $('GitHub Issues Trigger').first().json;\nconst body = triggerData.body || triggerData;\nconst issue = body.issue || body;\nconst repo = triggerData.repository || body.repository || {};\n\nconst issueNum = issue.number || 1;\nconst issueTitle = issue.title || 'Bug Report';\nconst issueBody = issue.body || '';\nconst repoFullName = repo.full_name || 'Vyvch/drop_ru_domain_finder';\nconst suffix = Math.floor(Date.now() / 1000).toString().slice(-4);\n\nreturn {\n  json: {\n    issue_number: issueNum,\n    issue_title: issueTitle,\n    issue_body: issueBody,\n    repo_full_name: repoFullName,\n    branch_name: `fix/issue-${issueNum}-autofix-${suffix}`\n  }\n};\n"
+      },
+      "id": "extract-issue-metadata",
+      "name": "Extract Dynamic Issue Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/git/trees/main?recursive=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-repo-tree",
+      "name": "Fetch Repo Tree (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — Principal Software Architect & Lead Triager.\nТвоя задача — точно определить список файлов репозитория, требующих изменений (основной код и/или тесты) на основе баг-репорта.\n\nБАГ-РЕПОРТ #{{ $('Extract Dynamic Issue Data').first().json.issue_number }}:\nЗаголовок: {{ $('Extract Dynamic Issue Data').first().json.issue_title }}\nОписание: {{ $('Extract Dynamic Issue Data').first().json.issue_body }}\n\nДЕРЕВО ФАЙЛОВ РЕПОЗИТОРИЯ:\n{{ $json.tree.filter(item => item.path && !item.path.startsWith('.')).map(item => item.path).join('\\n') }}\n\nПРАВИЛА И ЭВРИСТИКИ ПОИСКА ФАЙЛОВ:\n1. Если в заголовке, описании или стек-трейсе баг-репорта явно упомянуто имя файла или путь — используй его в первую очередь!\n2. Проанализируй имя функции или класса из ошибки (например, calculate_average_score, calculate_domain_score):\n   - Сопоставь ключевые слова из имени функции с названиями файлов в дереве (domain, exporter, score, search, whois, health, wayback).\n3. Обрати пристальное внимание на каталог tests/:\n   - Если в тестах есть файл test_<name>.py (например, tests/test_domain_exporter.py) — это явный маркер, что целевой модуль называется domain_exporter.py!\n4. Правило специфичности:\n   - Не выбирай абстрактные файлы (вроде services.py, utils.py), если в репозитории есть специализированный модуль, содержащий термины из контекста ошибки.\n\nВЕРНИ СТРОГО JSON со списком файлов из дерева выше и планом исправления:\n{\n  \"target_files\": [\"domain_exporter.py\", \"tests/test_domain_exporter.py\"],\n  \"plan\": \"краткое пошаговое описание необходимых изменений\"\n}"
+      },
+      "id": "ai-locate-files-multi",
+      "name": "AI File Locator (Multi-file)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1100,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-locator",
+      "name": "OpenAI Chat Model (Locator)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = {};\n}\n\nconst mainTree = $('Fetch Repo Tree (GitHub API)').first().json;\nconst availableFiles = (mainTree.tree || []).filter(item => item.path && !item.path.startsWith('.')).map(item => item.path);\n\nlet files = Array.isArray(parsed.target_files) ? parsed.target_files : [];\n// Оставляем только те файлы, которые реально существуют в дереве репозитория\nfiles = files.filter(f => typeof f === 'string' && availableFiles.includes(f));\n\n// Если среди файлов есть тесты, ставим файл исходного кода на первое место (primary_file)\nconst nonTestFiles = files.filter(f => !f.startsWith('tests/'));\nconst primaryFile = nonTestFiles.length > 0 ? nonTestFiles[0] : (files[0] || 'domain_exporter.py');\n\nreturn {\n  json: {\n    target_files: files.length > 0 ? files : [primaryFile],\n    primary_file: primaryFile,\n    plan: parsed.plan || 'Автономное исправление ошибки',\n    tree_sha: mainTree.sha\n  }\n};\n"
+      },
+      "id": "parse-target-files",
+      "name": "Parse Target Files List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/contents/{{ $json.primary_file }}?ref=main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-primary-source",
+      "name": "Fetch Source Code (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst contentB64 = $json.content || '';\nconst rawCode = Buffer.from(contentB64.replace(/\\n/g, ''), 'base64').toString('utf-8');\nconst meta = $('Extract Dynamic Issue Data').first().json;\nconst filesMeta = $('Parse Target Files List').first().json;\n\nreturn {\n  json: {\n    original_code: rawCode,\n    file_sha: $json.sha,\n    target_files: filesMeta.target_files,\n    primary_file: filesMeta.primary_file,\n    plan: filesMeta.plan,\n    tree_sha: filesMeta.tree_sha,\n    issue_number: meta.issue_number,\n    issue_title: meta.issue_title,\n    issue_body: meta.issue_body,\n    branch_name: meta.branch_name,\n    attempt: 1,\n    max_attempts: 3,\n    critique: '',\n    verdict: 'PENDING'\n  }\n};\n"
+      },
+      "id": "init-loop-state",
+      "name": "Init Self-Correction State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — Senior Python Developer (Генератор фикса).\nТвоя задача — исправить ошибку в файле {{ $json.primary_file }} на основе баг-репорта и плана.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\n{{ $json.issue_title }}\n{{ $json.issue_body }}\n\nПЛАН ИСПРАВЛЕНИЯ: {{ $json.plan }}\nСПИСОК ЦЕЛЕВЫХ ФАЙЛОВ: {{ $json.target_files.join(', ') }}\n\nИСХОДНЫЙ КОД ({{ $json.primary_file }}):\n{{ $json.original_code }}\n\n{{ $json.critique ? 'ВНИМАНИЕ! Предыдущая версия была отклонена AI-Судьёй с замечаниями:\\n' + $json.critique + '\\nОбязательно переделай с учётом этой критики!\\n' : '' }}\n\nВерни ТОЛЬКО полный исправленный Python-код файла {{ $json.primary_file }}. Без пояснений, без markdown-тегов (без обратных кавычек ```python)."
+      },
+      "id": "ai-code-fixer-actor",
+      "name": "AI Code Fixer (Generator)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        2020,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-actor",
+      "name": "OpenAI Chat Model (Actor)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2020,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet fixedText = $json.text || $json.output || '';\nfixedText = fixedText.replace(/```python/gi, '').replace(/```/g, '').trim();\n\nlet baseState;\ntry {\n  baseState = $('Evaluate Judge Verdict').last().json;\n} catch (e) {\n  baseState = $('Init Self-Correction State').first().json;\n}\n\nreturn {\n  json: {\n    ...baseState,\n    candidate_code: fixedText\n  }\n};\n"
+      },
+      "id": "format-candidate-code",
+      "name": "Format Candidate Fix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — строгий Principal Code Reviewer & AI-Судья (Critic / Evaluator).\nТвоя задача — беспристрастно и строго проверить предложенное исправление бага.\n\nБАГ-РЕПОРТ #{{ $json.issue_number }}:\nЗаголовок: {{ $json.issue_title }}\nОписание: {{ $json.issue_body }}\n\nПРЕДЛОЖЕННЫЙ ПАТЧ ДЛЯ ФАЙЛА {{ $json.primary_file }}:\n{{ $json.candidate_code }}\n\nКРИТЕРИИ ОЦЕНКИ:\n1. Полностью ли патч устраняет первопричину (root cause) проблемы, описанной в баг-репорте?\n2. Сохранена ли обратная совместимость, сигнатуры функций/методов, аннотации типов и форматы возвращаемых данных?\n3. Нет ли синтаксических ошибок, регрессий, утечек или случайного удаления существующей бизнес-логики?\n4. Соответствует ли реализация принципам чистого кода и защитного программирования (defensive programming)?\n\nФОРМАТ ОТВЕТА (строго JSON):\n{\n  \"verdict\": \"APPROVED\" или \"REJECTED\",\n  \"reason\": \"Если REJECTED — подробно опиши, что именно не так и как это исправить. Если APPROVED — кратко подтверди корректность\",\n  \"confidence\": 0.95\n}"
+      },
+      "id": "ai-judge-critic",
+      "name": "AI Judge (Critic / Reviewer)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        2480,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-critic",
+      "name": "OpenAI Chat Model (Critic)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2480,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet raw = $json.text || $json.output || '';\nlet parsed = {};\n\ntry {\n  let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n  const first = clean.indexOf('{');\n  const last = clean.lastIndexOf('}');\n  if (first !== -1 && last !== -1) {\n    clean = clean.substring(first, last + 1);\n  }\n  parsed = JSON.parse(clean);\n} catch (e) {\n  parsed = { verdict: 'REJECTED', reason: 'Failed to parse review format' };\n}\n\nconst candidate = $('Format Candidate Fix').first().json;\nconst currentAttempt = candidate.attempt || 1;\nconst maxAttempts = candidate.max_attempts || 3;\n\nlet verdict = (parsed.verdict || 'REJECTED').toUpperCase().trim();\nlet isApproved = verdict === 'APPROVED';\nlet isLimitReached = !isApproved && (currentAttempt >= maxAttempts);\n\nreturn {\n  json: {\n    ...candidate,\n    verdict: verdict,\n    critique: parsed.reason || 'Замечания не указаны',\n    is_approved: isApproved,\n    attempt: currentAttempt + 1,\n    max_attempts: maxAttempts,\n    is_limit_reached: isLimitReached\n  }\n};\n"
+      },
+      "id": "evaluate-judge-verdict",
+      "name": "Evaluate Judge Verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2700,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-judge-decision",
+      "name": "Judge Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2920,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $json;\nconst fixedB64 = Buffer.from(item.candidate_code, 'utf-8').toString('base64');\nconst meta = $('Extract Dynamic Issue Data').first().json;\n\nreturn {\n  json: {\n    fixed_content_b64: fixedB64,\n    original_sha: item.file_sha,\n    target_file: item.primary_file,\n    all_target_files: item.target_files,\n    issue_number: item.issue_number,\n    issue_title: item.issue_title,\n    branch_name: item.branch_name,\n    repo_full_name: meta.repo_full_name,\n    judge_critique: item.critique\n  }\n};\n"
+      },
+      "id": "prepare-final-patch",
+      "name": "Prepare Approved Patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3160,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/git/ref/heads/main",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "get-main-sha",
+      "name": "Get Main Branch SHA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3380,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/git/refs",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ref",
+              "value": "=refs/heads/{{ $('Prepare Approved Patch').first().json.branch_name }}"
+            },
+            {
+              "name": "sha",
+              "value": "={{ $json.object.sha }}"
+            }
+          ]
+        },
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    ref: `refs/heads/${$('Prepare Approved Patch').first().json.branch_name}`,\n    sha: $json.object.sha\n  })\n}}"
+      },
+      "id": "create-fix-branch",
+      "name": "Create Fix Branch (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3600,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/contents/{{ $('Prepare Approved Patch').first().json.target_file }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Approved Patch').first().json.issue_number }} in {{ $('Prepare Approved Patch').first().json.target_file }} verified by AI Judge (closes #{{ $('Prepare Approved Patch').first().json.issue_number }})"
+            },
+            {
+              "name": "branch",
+              "value": "={{ $('Prepare Approved Patch').first().json.branch_name }}"
+            },
+            {
+              "name": "sha",
+              "value": "={{ $('Prepare Approved Patch').first().json.original_sha }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $('Prepare Approved Patch').first().json.fixed_content_b64 }}"
+            }
+          ]
+        },
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    message: `fix: Auto-resolve Issue #${$('Prepare Approved Patch').first().json.issue_number} in ${$('Prepare Approved Patch').first().json.target_file} verified by AI Judge (closes #${$('Prepare Approved Patch').first().json.issue_number})`,\n    content: $('Prepare Approved Patch').first().json.fixed_content_b64,\n    sha: $('Prepare Approved Patch').first().json.original_sha,\n    branch: $('Prepare Approved Patch').first().json.branch_name\n  })\n}}"
+      },
+      "id": "commit-fix-to-branch",
+      "name": "Commit Fix to Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3820,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/pulls",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "=fix: Auto-resolve Issue #{{ $('Prepare Approved Patch').first().json.issue_number }} (Verified by AI-Judge)"
+            },
+            {
+              "name": "head",
+              "value": "={{ $('Prepare Approved Patch').first().json.branch_name }}"
+            },
+            {
+              "name": "base",
+              "value": "main"
+            },
+            {
+              "name": "body",
+              "value": "=## Автономное исправление бага (Actor-Critic Self-Correction Loop)\n\n- **Баг-репорт:** #{{ $('Prepare Approved Patch').first().json.issue_number }}\n- **Затронутые файлы:** `{{ $('Prepare Approved Patch').first().json.all_target_files.join(', ') }}`\n- **Вердикт AI-Судьи:** APPROVED\n- **Комментарий судьи:** {{ $('Prepare Approved Patch').first().json.judge_critique }}\n\nCloses #{{ $('Prepare Approved Patch').first().json.issue_number }}"
+            }
+          ]
+        },
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    title: `fix: Auto-resolve Issue #${$('Prepare Approved Patch').first().json.issue_number} verified by AI Judge (closes #${$('Prepare Approved Patch').first().json.issue_number})`,\n    head: $('Prepare Approved Patch').first().json.branch_name,\n    base: 'main',\n    body: `## Автономное исправление бага (Actor-Critic Self-Correction Loop)\\n\\n- **Баг-репорт:** #${$('Prepare Approved Patch').first().json.issue_number}\\n- **Затронутые файлы:** ${$('Prepare Approved Patch').first().json.all_target_files.join(', ')}\\n- **Вердикт AI-Судьи:** APPROVED\\n- **Комментарий судьи:** ${$('Prepare Approved Patch').first().json.judge_critique}\\n\\nCloses #${$('Prepare Approved Patch').first().json.issue_number}`\n  })\n}}"
+      },
+      "id": "create-pr-node",
+      "name": "Create Pull Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4040,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://api.github.com/repos/{{ $('Prepare Approved Patch').first().json.repo_full_name }}/pulls/{{ $json.number }}/merge",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "merge_method",
+              "value": "squash"
+            },
+            {
+              "name": "commit_title",
+              "value": "=fix: Auto-merge PR #{{ $json.number }} into main (closes #{{ $('Prepare Approved Patch').first().json.issue_number }})"
+            }
+          ]
+        },
+        "options": {},
+        "jsonBody": "={{\n  JSON.stringify({\n    commit_title: `Auto-merge: AI-Verified Fix for Issue #${$('Prepare Approved Patch').first().json.issue_number}`,\n    merge_method: 'squash'\n  })\n}}"
+      },
+      "id": "merge-pr-node",
+      "name": "Auto-Merge PR to Main",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4260,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.is_limit_reached }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-limit-reached",
+      "name": "Attempts Limit Reached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        940,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/issues/{{ $('Extract Dynamic Issue Data').first().json.issue_number }}/comments",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    body: `🤖 **Автономный AI-Fixer не смог устранить проблему за ${$json.max_attempts} попытки.**\\n\\nПатч был отклонён AI-Судьёй (Code Reviewer) со следующими замечаниями:\\n> ${$json.critique}\\n\\nЗадача эскалирована разработчикам. Повешен лейбл \\`needs-human-review\\`.`\n  })\n}}",
+        "options": {}
+      },
+      "id": "post-escalation-comment",
+      "name": "Post Escalation Comment (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{ $('Extract Dynamic Issue Data').first().json.repo_full_name }}/issues/{{ $('Extract Dynamic Issue Data').first().json.issue_number }}/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    labels: [\"needs-human-review\"]\n  })\n}}",
+        "options": {}
+      },
+      "id": "add-escalation-label",
+      "name": "Add Escalation Label (GitHub API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "GitHub Issues Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Bug Label?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Bug Label?": {
+      "main": [
+        [
+          {
+            "node": "Extract Dynamic Issue Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Dynamic Issue Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Repo Tree (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Repo Tree (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "AI File Locator (Multi-file)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Locator)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI File Locator (Multi-file)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI File Locator (Multi-file)": {
+      "main": [
+        [
+          {
+            "node": "Parse Target Files List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Target Files List": {
+      "main": [
+        [
+          {
+            "node": "Fetch Source Code (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Source Code (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Init Self-Correction State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Self-Correction State": {
+      "main": [
+        [
+          {
+            "node": "AI Code Fixer (Generator)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Actor)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Code Fixer (Generator)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Code Fixer (Generator)": {
+      "main": [
+        [
+          {
+            "node": "Format Candidate Fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Candidate Fix": {
+      "main": [
+        [
+          {
+            "node": "AI Judge (Critic / Reviewer)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Critic)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Judge (Critic / Reviewer)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Judge (Critic / Reviewer)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Judge Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Judge Verdict": {
+      "main": [
+        [
+          {
+            "node": "Judge Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Judge Approved?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Approved Patch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Attempts Limit Reached?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Approved Patch": {
+      "main": [
+        [
+          {
+            "node": "Get Main Branch SHA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Main Branch SHA": {
+      "main": [
+        [
+          {
+            "node": "Create Fix Branch (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Fix Branch (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Commit Fix to Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Commit Fix to Branch": {
+      "main": [
+        [
+          {
+            "node": "Create Pull Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Pull Request": {
+      "main": [
+        [
+          {
+            "node": "Auto-Merge PR to Main",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attempts Limit Reached?": {
+      "main": [
+        [
+          {
+            "node": "Post Escalation Comment (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Code Fixer (Generator)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Escalation Comment (GitHub API)": {
+      "main": [
+        [
+          {
+            "node": "Add Escalation Label (GitHub API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

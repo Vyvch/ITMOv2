@@ -1,0 +1,134 @@
+{
+  "name": "Practice 7.2 - Issue Classifier (Sub-workflow)",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "title"
+            },
+            {
+              "name": "body"
+            }
+          ]
+        }
+      },
+      "id": "subworkflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — автоматический классификатор задач и тикетов в GitHub.\nОпредели категорию задачи на основе её заголовка и описания.\n\nКАТЕГОРИИ (поле type):\n- \"bug\": ошибки, сбои, падения сервиса, исключения, деление на ноль, неработающий функционал.\n- \"feature\": предложение новой функциональности, новый эндпоинт, улучшение функционала.\n- \"task\": рефакторинг, добавление тестов, обновление документации, инженерные задачи.\n- \"unknown\": описание слишком короткое, невнятное, бессмысленное или неоднозначное.\n\nУВЕРЕННОСТЬ (поле confidence от 0.0 до 1.0):\n- Поставь >= 0.85, если категория задачи ясна и однозначна.\n- Обязательно поставь < 0.8 (например, 0.4 - 0.6), если тикет расплывчатый, нет конкретики, описание состоит из пары невнятных слов или невозможно точно определить проблему.\n\nЗаголовок: {{ $json.title || $json.query?.title || '' }}\nОписание: {{ $json.body || $json.query?.body || '' }}",
+        "hasOutputParser": true
+      },
+      "id": "llm-chain-classifier",
+      "name": "Basic LLM Chain (Classifier)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "llm-model-node",
+      "name": "OpenAI Chat Model (GPT-4o-mini)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "fromJson",
+        "jsonSchema": "{\n  \"type\": \"bug\",\n  \"confidence\": 0.95,\n  \"reason\": \"Обнаружено исключение ZeroDivisionError при пустом домене\"\n}"
+      },
+      "id": "structured-parser",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        600,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet raw = $json.output || $json.text || $json;\nlet parsed = {};\n\nif (typeof raw === 'string') {\n  try {\n    let clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();\n    const first = clean.indexOf('{');\n    const last = clean.lastIndexOf('}');\n    if (first !== -1 && last !== -1) {\n      clean = clean.substring(first, last + 1);\n    }\n    parsed = JSON.parse(clean);\n  } catch (e) {\n    parsed = {};\n  }\n} else if (typeof raw === 'object' && raw !== null) {\n  parsed = raw;\n}\n\n// Support both 'type' and 'state' (if n8n default parser schema was used)\nconst type = (parsed.type || parsed.state || 'unknown').toLowerCase().trim();\nlet conf = typeof parsed.confidence === 'number' ? parsed.confidence : parseFloat(parsed.confidence);\nif (isNaN(conf)) {\n  conf = (type === 'unknown') ? 0.5 : 0.95;\n}\n\nreturn {\n  json: {\n    type: type,\n    confidence: conf,\n    reason: parsed.reason || ''\n  }\n};\n"
+      },
+      "id": "format-classification-output",
+      "name": "Format Classification Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain (Classifier)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (GPT-4o-mini)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain (Classifier)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain (Classifier)",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain (Classifier)": {
+      "main": [
+        [
+          {
+            "node": "Format Classification Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

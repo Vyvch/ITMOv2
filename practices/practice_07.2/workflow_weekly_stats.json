@@ -1,0 +1,310 @@
+{
+  "name": "Practice 7.2 - Weekly Stats & AI Summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * MON"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Schedule (Every Monday 09:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/issues?state=all&since={{ $now.minus({days: 8}).toISO() }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-github-issues",
+      "name": "Fetch Issues Last 7 Days",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/Vyvch/drop_ru_domain_finder/pulls?state=all",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "id": "fetch-github-prs",
+      "name": "Fetch PRs Last 7 Days",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Собираем результаты запросов к GitHub\nconst issuesData = $('Fetch Issues Last 7 Days').all().map(item => item.json);\nconst pullsData = $('Fetch PRs Last 7 Days').all().map(item => item.json);\n\n// Определяем границы календарной недели (строго с Понедельника 00:00 по Воскресенье 23:59 UTC)\nconst now = new Date();\nconst dayOfWeek = now.getUTCDay(); // 0 = вс, 1 = пн, 2 = вт, ..., 6 = сб\n\nlet weekStart = new Date(now);\nlet weekEnd = new Date(now);\n\nif (dayOfWeek === 1) {\n  // Запуск в понедельник (штатный крон 09:00): отчёт за прошлую завершённую календарную неделю\n  weekStart.setUTCDate(now.getUTCDate() - 7);\n  weekEnd.setUTCDate(now.getUTCDate() - 1);\n} else {\n  // Тестовый запуск посреди недели: отчёт за текущую календарную неделю (Пн — Вс)\n  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;\n  weekStart.setUTCDate(now.getUTCDate() - daysSinceMonday);\n  weekEnd.setUTCDate(weekStart.getUTCDate() + 6);\n}\n\nweekStart.setUTCHours(0, 0, 0, 0);\nweekEnd.setUTCHours(23, 59, 59, 999);\n\nlet bugsCount = 0;\nlet featuresCount = 0;\nlet tasksCount = 0;\nlet triageCount = 0;\nlet totalIssues = 0;\nconst authorMap = {};\nconst seenIssues = new Set();\n\n// Обработка Issues (фильтруем PR и исключаем дубликаты)\nfor (const item of issuesData) {\n  if (!item || !item.number) continue;\n  if (item.pull_request) continue; // В /issues API GitHub возвращает и PR, пропускаем их\n  if (seenIssues.has(item.number)) continue;\n  seenIssues.add(item.number);\n  \n  const createdAt = new Date(item.created_at);\n  if (createdAt >= weekStart && createdAt <= weekEnd) {\n    totalIssues++;\n    const labels = (item.labels || []).map(l => (typeof l === 'string' ? l : l.name).toLowerCase());\n    \n    if (labels.includes('bug')) bugsCount++;\n    if (labels.includes('feature')) featuresCount++;\n    if (labels.includes('task')) tasksCount++;\n    if (labels.includes('needs-triage')) triageCount++;\n    \n    const author = item.user ? item.user.login : 'unknown';\n    authorMap[author] = (authorMap[author] || 0) + 1;\n  }\n}\n\n// Обработка PRs (строго уникальные PR по номеру)\nlet prsCount = 0;\nconst seenPrs = new Set();\nfor (const pr of pullsData) {\n  if (!pr || !pr.number || seenPrs.has(pr.number)) continue;\n  seenPrs.add(pr.number);\n  \n  const createdAt = new Date(pr.created_at);\n  if (createdAt >= weekStart && createdAt <= weekEnd) {\n    prsCount++;\n    const author = pr.user ? pr.user.login : 'unknown';\n    authorMap[author] = (authorMap[author] || 0) + 1;\n  }\n}\n\n// Топ автор\nlet topAuthor = 'Vyvch';\nlet maxContributions = 0;\nfor (const [author, count] of Object.entries(authorMap)) {\n  if (count > maxContributions) {\n    maxContributions = count;\n    topAuthor = author;\n  }\n}\n\nconst startStr = weekStart.toISOString().slice(0, 10);\nconst endStr = weekEnd.toISOString().slice(0, 10);\n\nreturn {\n  json: {\n    week_id: `week_${startStr}`,\n    total_issues: totalIssues,\n    bugs_count: bugsCount,\n    features_count: featuresCount,\n    tasks_count: tasksCount,\n    triage_count: triageCount,\n    prs_count: prsCount,\n    top_author: topAuthor,\n    authors_breakdown: authorMap,\n    week_start: startStr,\n    week_end: endStr\n  }\n};\n"
+      },
+      "id": "group-statistics-node",
+      "name": "Group Statistics (Types & Authors)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "weekly_stats",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "get-prev-week-stats",
+      "name": "Get Previous Week Stats",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        360
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst current = $('Group Statistics (Types & Authors)').first().json;\nlet previous = {};\n\ntry {\n  const prevRows = $('Get Previous Week Stats').all();\n  if (prevRows && prevRows.length > 0) {\n    previous = prevRows[prevRows.length - 1].json;\n  }\n} catch (e) {}\n\nfunction formatDelta(curr, prev) {\n  if (typeof prev !== 'number') return '(new)';\n  const diff = curr - prev;\n  if (diff > 0) return `+${diff}`;\n  if (diff < 0) return `${diff}`;\n  return '0';\n}\n\nconst deltaIssues = formatDelta(current.total_issues, previous.total_issues);\nconst deltaBugs = formatDelta(current.bugs_count, previous.bugs_count);\nconst deltaFeatures = formatDelta(current.features_count, previous.features_count);\nconst deltaTasks = formatDelta(current.tasks_count, previous.tasks_count);\nconst deltaPrs = formatDelta(current.prs_count, previous.prs_count);\n\nreturn {\n  json: {\n    ...current,\n    prev_total_issues: previous.total_issues || 0,\n    prev_bugs_count: previous.bugs_count || 0,\n    delta_issues: deltaIssues,\n    delta_bugs: deltaBugs,\n    delta_features: deltaFeatures,\n    delta_tasks: deltaTasks,\n    delta_prs: deltaPrs\n  }\n};\n"
+      },
+      "id": "calculate-delta-node",
+      "name": "Calculate Delta (Δ)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Ты — опытный инженерный тимлид.\nПроанализируй недельную статистику репозитория и дельты изменений по сравнению с прошлой неделей.\n\nМЕТРИКИ НЕДЕЛИ:\n- Всего создано Issues: {{ $json.total_issues }} (Δ: {{ $json.delta_issues }})\n- Баги (bugs): {{ $json.bugs_count }} (Δ: {{ $json.delta_bugs }})\n- Новые фичи (features): {{ $json.features_count }} (Δ: {{ $json.delta_features }})\n- Инженерные задачи (tasks): {{ $json.tasks_count }} (Δ: {{ $json.delta_tasks }})\n- Pull Requests: {{ $json.prs_count }} (Δ: {{ $json.delta_prs }})\n- Главный контрибьютор: {{ $json.top_author }}\n\nЗАДАЧА:\nНапиши лаконичный, воодушевляющий и профессиональный «AI-комментарий недели» (ровно 2-3 предложения).\nОцени динамику техдолга и прогресса, отметь вклад команды и сформулируй ключевой акцент на следующую неделю. Без воды, сразу суть."
+      },
+      "id": "ai-weekly-commentary",
+      "name": "AI Weekly Commentary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "openai/gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "openai/gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "ai-model-commentary",
+      "name": "GPT-4o-mini (Commentary)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $('Calculate Delta (Δ)').first().json;\nconst aiComment = $json.text || $json.output || 'Отличная инженерная неделя! Темп разработки стабилен, критических инцидентов нет.';\n\nfunction deltaBadge(delta) {\n  if (delta.startsWith('+')) return `<span style=\"color:#28a745;font-weight:bold;\">${delta}</span>`;\n  if (delta.startsWith('-')) return `<span style=\"color:#dc3545;font-weight:bold;\">${delta}</span>`;\n  return `<span style=\"color:#6c757d;\">${delta}</span>`;\n}\n\nlet authorsHtml = '';\nfor (const [author, count] of Object.entries(data.authors_breakdown || {})) {\n  authorsHtml += `<li><b>${author}</b>: ${count} действий</li>`;\n}\nif (!authorsHtml) authorsHtml = '<li>Пока нет действий за неделю</li>';\n\nconst htmlBody = `\n<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; color: #24292f; border: 1px solid #d0d7de; border-radius: 8px; padding: 24px; background: #ffffff;\">\n  <h2 style=\"margin-top:0; color: #0969da; border-bottom: 2px solid #eaeef2; padding-bottom: 12px;\">\n    📊 Еженедельный дайджест репозитория (${data.week_start} — ${data.week_end})\n  </h2>\n\n  <div style=\"background: #f6f8fa; border-left: 4px solid #0969da; padding: 14px 18px; border-radius: 4px; margin-bottom: 24px;\">\n    <h3 style=\"margin: 0 0 6px 0; font-size: 15px; color: #1f2328;\">🤖 AI-комментарий недели:</h3>\n    <p style=\"margin: 0; font-size: 14px; line-height: 1.5; color: #424a53;\">${aiComment}</p>\n  </div>\n\n  <h3 style=\"font-size: 16px; margin-bottom: 10px;\">Сводная статистика и динамика (Δ к прошлой неделе):</h3>\n  <table style=\"width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px;\">\n    <thead>\n      <tr style=\"background: #f6f8fa; text-align: left;\">\n        <th style=\"padding: 10px; border: 1px solid #d0d7de;\">Метрика</th>\n        <th style=\"padding: 10px; border: 1px solid #d0d7de; text-align: center;\">Текущее значение</th>\n        <th style=\"padding: 10px; border: 1px solid #d0d7de; text-align: center;\">Δ (к прошлой неделе)</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de;\">Всего Issues</td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\"><b>${data.total_issues}</b></td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\">${deltaBadge(data.delta_issues)}</td>\n      </tr>\n      <tr>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de;\">🐛 Баги (bugs)</td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\"><b>${data.bugs_count}</b></td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\">${deltaBadge(data.delta_bugs)}</td>\n      </tr>\n      <tr>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de;\">✨ Новые фичи (features)</td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\"><b>${data.features_count}</b></td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\">${deltaBadge(data.delta_features)}</td>\n      </tr>\n      <tr>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de;\">📋 Задачи (tasks)</td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\"><b>${data.tasks_count}</b></td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\">${deltaBadge(data.delta_tasks)}</td>\n      </tr>\n      <tr>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de;\">🔀 Pull Requests</td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\"><b>${data.prs_count}</b></td>\n        <td style=\"padding: 8px 10px; border: 1px solid #d0d7de; text-align: center;\">${deltaBadge(data.delta_prs)}</td>\n      </tr>\n    </tbody>\n  </table>\n\n  <h3 style=\"font-size: 15px; margin-bottom: 8px;\">Активность авторов:</h3>\n  <ul style=\"margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.6;\">\n    ${authorsHtml}\n  </ul>\n  <p style=\"font-size: 13px; color: #57606a; margin-top: 14px;\">🏆 Главный контрибьютор недели: <b>${data.top_author}</b></p>\n</div>\n`;\n\nreturn {\n  json: {\n    ...data,\n    email_subject: `📊 Еженедельный отчёт по репозиторию: ${data.week_start} — ${data.week_end}`,\n    email_html: htmlBody\n  }\n};\n"
+      },
+      "id": "build-html-email-node",
+      "name": "Build HTML Email Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "weekly_stats",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week_id": "={{ $json.week_id }}",
+            "total_issues": "={{ $json.total_issues.toString() }}",
+            "bugs_count": "={{ $json.bugs_count.toString() }}",
+            "features_count": "={{ $json.features_count.toString() }}",
+            "tasks_count": "={{ $json.tasks_count.toString() }}",
+            "prs_count": "={{ $json.prs_count.toString() }}",
+            "top_author": "={{ $json.top_author }}",
+            "created_at": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "id": "save-weekly-stats-datatable",
+      "name": "Save Weekly Stats to Data Table",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        2040,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "vlad.pivtsaev@mail.ru",
+        "subject": "={{ $('Build HTML Email Report').first().json.email_subject }}",
+        "message": "={{ $('Build HTML Email Report').first().json.email_html }}",
+        "options": {}
+      },
+      "id": "send-gmail-report",
+      "name": "Send Report via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2280,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule (Every Monday 09:00)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Issues Last 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Issues Last 7 Days": {
+      "main": [
+        [
+          {
+            "node": "Fetch PRs Last 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch PRs Last 7 Days": {
+      "main": [
+        [
+          {
+            "node": "Group Statistics (Types & Authors)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group Statistics (Types & Authors)": {
+      "main": [
+        [
+          {
+            "node": "Get Previous Week Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Previous Week Stats": {
+      "main": [
+        [
+          {
+            "node": "Calculate Delta (Δ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Delta (Δ)": {
+      "main": [
+        [
+          {
+            "node": "AI Weekly Commentary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o-mini (Commentary)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Weekly Commentary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Weekly Commentary": {
+      "main": [
+        [
+          {
+            "node": "Build HTML Email Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML Email Report": {
+      "main": [
+        [
+          {
+            "node": "Save Weekly Stats to Data Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Weekly Stats to Data Table": {
+      "main": [
+        [
+          {
+            "node": "Send Report via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
