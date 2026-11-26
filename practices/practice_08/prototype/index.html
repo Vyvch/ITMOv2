@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DropDomain — Мониторинг освобождающихся доменов</title>
+    <!-- Tailwind CSS (Light utilitarian setup) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        base: '#FFFFFF',
+                        muted: '#F7F7F8',
+                        'muted-border': '#E4E4E7',
+                        text: '#09090B',
+                        'text-muted': '#71717A',
+                        accent: '#18181B',
+                        'accent-blue': '#2563EB',
+                        'success-green': '#16A34A',
+                        'warning-amber': '#D97706',
+                        'error-red': '#DC2626'
+                    },
+                    fontFamily: {
+                        sans: ['Geist', 'IBM Plex Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'IBM Plex Mono', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #FFFFFF;
+            --bg-secondary: #F7F7F8;
+            --border-color: #E4E4E7;
+            --text-primary: #09090B;
+            --text-secondary: #71717A;
+            --accent-black: #18181B;
+        }
+        body {
+            font-family: 'Geist', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+        .font-mono, code {
+            font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+            font-variant-numeric: tabular-nums;
+        }
+        .tabular-nums {
+            font-variant-numeric: tabular-nums;
+        }
+        /* Strict flat utilitarian design: No shadows, sharp borders */
+        * {
+            box-shadow: none !important;
+        }
+        /* Data table row */
+        .domain-table-row {
+            display: grid;
+            grid-template-columns: minmax(220px, 1.8fr) 80px 70px 130px 100px;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding: 8px 16px;
+            font-size: 13px;
+            background: #FFFFFF;
+            transition: background-color 0.12s ease;
+            cursor: pointer;
+            text-align: left;
+            width: 100%;
+        }
+        .domain-table-row:hover {
+            background-color: var(--bg-secondary);
+        }
+        .domain-table-row:last-child {
+            border-bottom: none;
+        }
+        .copy-btn-inline {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+        .domain-table-row:hover .copy-btn-inline {
+            opacity: 1;
+        }
+        /* Hidden elements must never show */
+        .hidden, [hidden], #search-error-box.hidden {
+            display: none !important;
+        }
+        #search-error-box:not(.hidden) {
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+        }
+        /* Slide-over Drawer */
+        #drawer-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(9, 9, 11, 0.25);
+            z-index: 60;
+        }
+        #drawer-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 440px;
+            max-width: 100vw;
+            background: #FFFFFF;
+            border-left: 1px solid var(--border-color);
+            z-index: 70;
+            transform: translateX(100%);
+            transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        #drawer-panel.open {
+            transform: translateX(0);
+        }
+        #drawer-backdrop.open {
+            display: block;
+        }
+        /* Floating State Switcher for Reviewer (вынесен из хедера в плавающий нижний док) */
+        .reviewer-dock {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 50;
+            background: rgba(24, 24, 27, 0.95);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(63, 63, 70, 0.7);
+            border-radius: 9999px;
+            padding: 6px 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: #E4E4E7;
+        }
+        .state-btn {
+            padding: 3px 10px;
+            border-radius: 9999px;
+            border: 1px solid #3F3F46;
+            background: transparent;
+            color: #D4D4D8;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+            white-space: nowrap;
+        }
+        .state-btn:hover {
+            background: #27272A;
+            color: #FFFFFF;
+        }
+        .state-btn.active {
+            background: #FFFFFF;
+            color: #09090B;
+            border-color: #FFFFFF;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-base text-text min-h-screen flex flex-col antialiased">
+
+    <!-- 1. Верхняя панель навигации (минималистичная, высота 52px) -->
+    <header class="h-[52px] border-b border-muted-border bg-base px-6 sticky top-0 z-40 flex items-center justify-between">
+        <!-- Название сервиса слева -->
+        <div class="flex items-center gap-3">
+            <div class="w-6 h-6 rounded-[4px] bg-accent flex items-center justify-center font-mono font-bold text-xs text-white">
+                D
+            </div>
+            <div class="flex items-baseline gap-2">
+                <span class="font-bold text-sm tracking-tight text-text font-mono">DROP.RU</span>
+                <span class="text-[11px] text-text-muted hidden md:inline">Мониторинг освобождающихся доменов (.ru, .su, .рф)</span>
+            </div>
+        </div>
+
+        <!-- Переключатель двух режимов по центру (segmented control) -->
+        <div class="inline-flex p-0.5 rounded-[4px] border border-muted-border bg-muted text-xs font-medium">
+            <button type="button" id="tab-all-btn" onclick="switchMainTab('all')" class="px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all">
+                Все домены
+            </button>
+            <button type="button" id="tab-top-btn" onclick="switchMainTab('top')" class="px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all">
+                Топ-20 от AI
+            </button>
+        </div>
+
+        <!-- Справа: индикатор актуальности выгрузки реестра -->
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 text-xs font-mono text-text-muted">
+                <span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                <span>Обновлено 12 мин назад • 14 280 доменов</span>
+            </div>
+            <button type="button" onclick="exportCsvDemo()" class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-muted-border rounded-[4px] hover:bg-muted text-text transition-colors">
+                <svg class="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                CSV
+            </button>
+        </div>
+    </header>
+
+    <!-- ОСНОВНОЙ КОНТЕНТ -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-5 flex flex-col gap-4">
+
+        <!-- РЕЖИМ 1: ВСЕ ДОМЕНЫ -->
+        <div id="section-all" class="flex flex-col gap-3">
+
+            <!-- Липкая панель фильтров (sticky bar) -->
+            <div class="sticky top-[52px] z-30 bg-base pt-1 pb-3 border-b border-muted-border flex flex-col gap-2.5">
+                
+                <!-- Главная строка поиска с поддержкой регулярных выражений (Google RE2) -->
+                <div class="relative flex items-center">
+                    <!-- Иконка терминала/regex слева внутри поля -->
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text-muted font-mono text-xs select-none">
+                        &gt;_
+                    </div>
+                    
+                    <input 
+                        type="text" 
+                        id="search-input" 
+                        value="" 
+                        placeholder="Поиск по RE2 (например, ^[a-z]{3,4}\.ru$)..." 
+                        oninput="onSearchInput(this.value)"
+                        class="w-full pl-8 pr-32 py-2 text-xs font-mono bg-white border border-muted-border rounded-[4px] text-text placeholder-text-muted focus:outline-none focus:border-accent transition-colors"
+                        autocomplete="off"
+                    >
+
+                    <!-- Справа внутри поля: бейдж валидации синтаксиса RE2 -->
+                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center gap-1.5">
+                        <span id="re2-badge" class="inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-emerald-50 text-success-green border border-emerald-200">
+                            RE2 OK
+                        </span>
+                        <button type="button" id="regex-mode-btn" class="px-2 py-0.5 rounded-[3px] text-[11px] font-mono border border-muted-border text-text hover:bg-muted" title="Режим регулярных выражений">
+                            .*
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Под строкой поиска: компактные кликабельные чипсы-пресеты регулярок -->
+                <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="text-[11px] text-text-muted font-medium mr-1">Пресеты:</span>
+                        <button type="button" onclick="applyPreset('^[a-z]{3,4}\\.ru$')" class="px-2 py-0.5 rounded-[4px] border border-muted-border bg-muted hover:border-zinc-400 font-mono text-[11px] text-text transition-colors">
+                            ^[a-z]{3,4}\.ru$
+                        </button>
+                        <button type="button" onclick="applyPreset('^[^ -]+\\.(ru|su)$')" class="px-2 py-0.5 rounded-[4px] border border-muted-border bg-muted hover:border-zinc-400 font-mono text-[11px] text-text transition-colors">
+                            Без дефисов
+                        </button>
+                        <button type="button" onclick="applyPreset('\\.рф$')" class="px-2 py-0.5 rounded-[4px] border border-muted-border bg-muted hover:border-zinc-400 font-mono text-[11px] text-text transition-colors">
+                            Только .рф
+                        </button>
+                        <button type="button" onclick="applyPreset('^[a-z0-9]{2,3}\\.')" class="px-2 py-0.5 rounded-[4px] border border-muted-border bg-muted hover:border-zinc-400 font-mono text-[11px] text-text transition-colors">
+                            2-3 символа
+                        </button>
+                        <button type="button" onclick="applyPreset('(shop|pay|cloud|bank)')" class="px-2 py-0.5 rounded-[4px] border border-muted-border bg-muted hover:border-zinc-400 font-mono text-[11px] text-text transition-colors">
+                            Словарь (shop|pay)
+                        </button>
+                    </div>
+
+                    <!-- Фильтры дат и зон -->
+                    <div class="flex flex-wrap items-center gap-3">
+                        <!-- Фильтр дат освобождения -->
+                        <div class="inline-flex rounded-[4px] border border-muted-border bg-muted p-0.5 text-xs font-medium">
+                            <button type="button" onclick="setDateFilter('all', this)" class="px-2 py-0.5 rounded-[3px] bg-white text-text font-semibold border border-muted-border date-btn">Все</button>
+                            <button type="button" onclick="setDateFilter('today', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text date-btn">Сегодня</button>
+                            <button type="button" onclick="setDateFilter('tomorrow', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text date-btn">Завтра</button>
+                            <button type="button" onclick="setDateFilter('dayafter', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text date-btn">Послезавтра</button>
+                        </div>
+
+                        <!-- Фильтр зон -->
+                        <div class="inline-flex rounded-[4px] border border-muted-border bg-muted p-0.5 text-xs font-medium font-mono">
+                            <button type="button" onclick="setZoneFilter('all', this)" class="px-2 py-0.5 rounded-[3px] bg-white text-text font-semibold border border-muted-border zone-btn">Все</button>
+                            <button type="button" onclick="setZoneFilter('ru', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text zone-btn">.ru</button>
+                            <button type="button" onclick="setZoneFilter('su', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text zone-btn">.su</button>
+                            <button type="button" onclick="setZoneFilter('рф', this)" class="px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text zone-btn">.рф</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Сообщение об ошибке валидации RE2 (скрыто по умолчанию) -->
+                <div id="search-error-box" class="hidden px-3 py-1.5 rounded-[4px] bg-red-50 border border-red-200 text-error-red text-xs font-mono items-center justify-between" style="display: none;">
+                    <span id="search-error-text">Ошибка синтаксиса Google RE2: незакрытый квантификатор '['</span>
+                    <button type="button" onclick="clearErrorDemo()" class="text-[11px] underline hover:no-underline text-error-red">Очистить</button>
+                </div>
+            </div>
+
+            <!-- Блок результатов: Плотная таблица данных (Data Table) -->
+            <div class="border border-muted-border rounded-[4px] overflow-hidden bg-white">
+                
+                <!-- Шапка таблицы данных -->
+                <div class="grid grid-cols-[minmax(220px,1.8fr)_80px_70px_130px_100px] items-center px-4 py-2 bg-muted border-b border-muted-border text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                    <div>Домен</div>
+                    <div>Зона</div>
+                    <div>Длина</div>
+                    <div>Дата освобождения</div>
+                    <div class="text-right">Действие</div>
+                </div>
+
+                <!-- Состояние 3: Скелетон загрузки (скрыто по умолчанию) -->
+                <div id="table-skeleton" class="hidden divide-y divide-muted-border">
+                    <div class="p-4 space-y-2.5 animate-pulse">
+                        <div class="h-3.5 bg-zinc-200 rounded-[3px] w-2/5"></div>
+                    </div>
+                    <div class="p-4 space-y-2.5 animate-pulse">
+                        <div class="h-3.5 bg-zinc-200 rounded-[3px] w-1/3"></div>
+                    </div>
+                    <div class="p-4 space-y-2.5 animate-pulse">
+                        <div class="h-3.5 bg-zinc-200 rounded-[3px] w-1/2"></div>
+                    </div>
+                    <div class="p-4 space-y-2.5 animate-pulse">
+                        <div class="h-3.5 bg-zinc-200 rounded-[3px] w-2/5"></div>
+                    </div>
+                </div>
+
+                <!-- Состояние 4: Пустая выдача (скрыто по умолчанию) -->
+                <div id="table-empty" class="hidden py-14 px-4 text-center flex flex-col items-center justify-center gap-2">
+                    <div class="w-8 h-8 rounded-[4px] border border-muted-border bg-muted flex items-center justify-center text-text-muted font-mono text-xs">
+                        ∅
+                    </div>
+                    <p class="text-xs font-semibold text-text">Доменов по заданным фильтрам не найдено</p>
+                    <p class="text-[11px] text-text-muted max-w-sm">Попробуйте скорректировать регулярное выражение или выбрать более широкий диапазон дат.</p>
+                    <button type="button" onclick="setPrototypeState('default')" class="mt-2 px-3 py-1 text-xs border border-muted-border rounded-[4px] hover:bg-muted text-text font-medium transition-colors">
+                        Сбросить фильтры
+                    </button>
+                </div>
+
+                <!-- Состояние 5: Ошибка сервера сети (скрыто по умолчанию) -->
+                <div id="table-error" class="hidden py-10 px-6 text-center flex flex-col items-center justify-center gap-2 bg-red-50/40">
+                    <span class="inline-block px-2 py-0.5 rounded-[3px] bg-red-100 text-error-red font-mono text-[11px] font-semibold">HTTP 500: Server Error</span>
+                    <p class="text-xs font-semibold text-text">Не удалось загрузить реестр доменов</p>
+                    <p class="text-[11px] text-text-muted">Сервер реестра nic.ru временно недоступен или превышен лимит запросов.</p>
+                    <button type="button" onclick="setPrototypeState('default')" class="mt-2 px-3 py-1 text-xs bg-accent text-white rounded-[4px] hover:bg-zinc-800 font-medium transition-colors">
+                        Повторить попытку
+                    </button>
+                </div>
+
+                <!-- Строки данных таблицы -->
+                <div id="table-rows" class="divide-y divide-muted-border">
+                    
+                    <!-- Строка 1 -->
+                    <div class="domain-table-row" onclick="openDrawerDemo('market-cloud.ru', '2026-11-23', 'RU-CENTER-RU', '2017-04-10', 1234, 2009, 2026)">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-mono font-semibold text-text truncate">market-cloud.ru</span>
+                            <button type="button" onclick="event.stopPropagation(); copyText('market-cloud.ru')" class="copy-btn-inline px-1 py-0.5 rounded-[2px] border border-muted-border text-[10px] text-text-muted hover:text-text hover:bg-white" title="Копировать домен">
+                                copy
+                            </button>
+                        </div>
+                        <div><span class="font-mono text-xs text-text-muted">.ru</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">15</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">2026-11-23</span></div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-accent hover:underline">Инспекция →</span>
+                        </div>
+                    </div>
+
+                    <!-- Строка 2: IDN .рф с мелким punycode -->
+                    <div class="domain-table-row" onclick="openDrawerDemo('аптека-онлайн.рф', '2026-11-23', 'REGTIME-RU', '2019-11-05', 428, 2019, 2025, 'xn----7sbbaa0c4ajbeeg0b.xn--p1ai')">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <div class="flex flex-col min-w-0">
+                                <span class="font-mono font-semibold text-text truncate">аптека-онлайн.рф</span>
+                                <span class="font-mono text-[10px] text-text-muted truncate">xn----7sbbaa0c4ajbeeg0b.xn--p1ai</span>
+                            </div>
+                            <button type="button" onclick="event.stopPropagation(); copyText('аптека-онлайн.рф')" class="copy-btn-inline px-1 py-0.5 rounded-[2px] border border-muted-border text-[10px] text-text-muted hover:text-text hover:bg-white" title="Копировать домен">
+                                copy
+                            </button>
+                        </div>
+                        <div><span class="font-mono text-xs text-text-muted">.рф</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">16</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">2026-11-23</span></div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-accent hover:underline">Инспекция →</span>
+                        </div>
+                    </div>
+
+                    <!-- Строка 3 -->
+                    <div class="domain-table-row" onclick="openDrawerDemo('fin-tech.su', '2026-11-24', 'REGRU-RU', '2015-08-19', 8540, 2015, 2026)">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-mono font-semibold text-text truncate">fin-tech.su</span>
+                            <button type="button" onclick="event.stopPropagation(); copyText('fin-tech.su')" class="copy-btn-inline px-1 py-0.5 rounded-[2px] border border-muted-border text-[10px] text-text-muted hover:text-text hover:bg-white" title="Копировать домен">
+                                copy
+                            </button>
+                        </div>
+                        <div><span class="font-mono text-xs text-text-muted">.su</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">11</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">2026-11-24</span></div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-accent hover:underline">Инспекция →</span>
+                        </div>
+                    </div>
+
+                    <!-- Строка 4 -->
+                    <div class="domain-table-row" onclick="openDrawerDemo('ai-search.ru', '2026-11-24', 'SALENAMES-RU', '2021-02-14', 92, 2021, 2024)">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-mono font-semibold text-text truncate">ai-search.ru</span>
+                            <button type="button" onclick="event.stopPropagation(); copyText('ai-search.ru')" class="copy-btn-inline px-1 py-0.5 rounded-[2px] border border-muted-border text-[10px] text-text-muted hover:text-text hover:bg-white" title="Копировать домен">
+                                copy
+                            </button>
+                        </div>
+                        <div><span class="font-mono text-xs text-text-muted">.ru</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">12</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">2026-11-24</span></div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-accent hover:underline">Инспекция →</span>
+                        </div>
+                    </div>
+
+                    <!-- Строка 5 -->
+                    <div class="domain-table-row" onclick="openDrawerDemo('vector-pay.ru', '2026-11-25', 'RU-CENTER-RU', '2016-09-01', 315, 2017, 2026)">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="font-mono font-semibold text-text truncate">vector-pay.ru</span>
+                            <button type="button" onclick="event.stopPropagation(); copyText('vector-pay.ru')" class="copy-btn-inline px-1 py-0.5 rounded-[2px] border border-muted-border text-[10px] text-text-muted hover:text-text hover:bg-white" title="Копировать домен">
+                                copy
+                            </button>
+                        </div>
+                        <div><span class="font-mono text-xs text-text-muted">.ru</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">13</span></div>
+                        <div><span class="font-mono text-xs text-text-muted tabular-nums">2026-11-25</span></div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium text-accent hover:underline">Инспекция →</span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Подвал пагинации таблицы данных -->
+                <div class="flex items-center justify-between px-4 py-2.5 bg-muted border-t border-muted-border text-xs text-text-muted font-mono">
+                    <button type="button" class="px-2.5 py-1 border border-muted-border rounded-[3px] bg-white text-text hover:bg-zinc-50 disabled:opacity-40" disabled>
+                        Назад
+                    </button>
+                    <div>
+                        <span>Стр. 1 из 143 • Всего 14 280 доменов</span>
+                    </div>
+                    <button type="button" class="px-2.5 py-1 border border-muted-border rounded-[3px] bg-white text-text hover:bg-zinc-50">
+                        Вперед
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- РЕЖИМ 2: ТОП-20 ОТ AI -->
+        <div id="section-top" class="hidden flex flex-col gap-4">
+            
+            <!-- Переключатель дня: «На сегодня» / «На завтра» -->
+            <div class="flex items-center justify-between">
+                <div class="inline-flex rounded-[4px] border border-muted-border bg-muted p-0.5 text-xs font-medium">
+                    <button type="button" id="top-today-btn" onclick="setTopDay('today')" class="px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all">
+                        На сегодня (23 ноября)
+                    </button>
+                    <button type="button" id="top-tomorrow-btn" onclick="setTopDay('tomorrow')" class="px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all">
+                        На завтра (24 ноября)
+                    </button>
+                </div>
+                <div class="text-xs text-text-muted font-mono">
+                    DeepSeek Curation • 20 лучших отобранных доменов
+                </div>
+            </div>
+
+            <!-- Строгий список Top-20 (grid 1px border, без теней) -->
+            <div class="border border-muted-border rounded-[4px] overflow-hidden bg-white">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead class="bg-muted border-b border-muted-border text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                        <tr>
+                            <th class="py-2.5 px-4 font-semibold">Домен</th>
+                            <th class="py-2.5 px-4 font-semibold">Обоснование LLM</th>
+                            <th class="py-2.5 px-4 font-semibold">WHOIS Инфо</th>
+                            <th class="py-2.5 px-4 font-semibold">Веб-архив</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-muted-border">
+                        <!-- Top-20 Item 1 -->
+                        <tr class="hover:bg-muted/60 transition-colors">
+                            <td class="py-3 px-4 align-top w-52">
+                                <div class="font-mono text-sm font-bold text-text">market-cloud.ru</div>
+                                <div class="flex items-center gap-2 mt-1 text-[11px] font-mono text-text-muted">
+                                    <span class="px-1.5 py-0.2 rounded border border-muted-border bg-muted">.ru</span>
+                                    <span>2026-11-23</span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top">
+                                <div class="text-xs text-zinc-700 leading-relaxed max-w-md">
+                                    Премиальный двухсловный домен в категории B2B SaaS и облачной электронной коммерции. Высокий потенциал прямого брендинга для платформ маркетплейс-интеграций.
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top font-mono text-[11px] text-text-muted whitespace-nowrap">
+                                <div>Рег: RU-CENTER-RU</div>
+                                <div>Создан: 2017-04-10</div>
+                                <div class="text-success-green flex items-center gap-1 mt-0.5">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                                    <span>DELEGATED</span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top font-mono text-xs whitespace-nowrap">
+                                <div class="text-text font-semibold">1 234 снимка</div>
+                                <div class="text-[11px] text-text-muted">2009 — 2026</div>
+                                <a href="https://web.archive.org/web/*/market-cloud.ru" target="_blank" rel="noopener noreferrer" class="inline-block mt-1 text-[11px] text-accent font-sans hover:underline">
+                                    Открыть слепки ↗
+                                </a>
+                            </td>
+                        </tr>
+
+                        <!-- Top-20 Item 2 -->
+                        <tr class="hover:bg-muted/60 transition-colors">
+                            <td class="py-3 px-4 align-top w-52">
+                                <div class="font-mono text-sm font-bold text-text">fin-tech.su</div>
+                                <div class="flex items-center gap-2 mt-1 text-[11px] font-mono text-text-muted">
+                                    <span class="px-1.5 py-0.2 rounded border border-muted-border bg-muted">.su</span>
+                                    <span>2026-11-24</span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top">
+                                <div class="text-xs text-zinc-700 leading-relaxed max-w-md">
+                                    Короткий индустриальный ключ в зоне .su. Привлекателен для аналитических порталов о финансовых технологиях и криптовалютных сервисов.
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top font-mono text-[11px] text-text-muted whitespace-nowrap">
+                                <div>Рег: REGRU-RU</div>
+                                <div>Создан: 2015-08-19</div>
+                                <div class="text-success-green flex items-center gap-1 mt-0.5">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                                    <span>DELEGATED</span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-4 align-top font-mono text-xs whitespace-nowrap">
+                                <div class="text-text font-semibold">8 540 снимков</div>
+                                <div class="text-[11px] text-text-muted">2015 — 2026</div>
+                                <a href="https://web.archive.org/web/*/fin-tech.su" target="_blank" rel="noopener noreferrer" class="inline-block mt-1 text-[11px] text-accent font-sans hover:underline">
+                                    Открыть слепки ↗
+                                </a>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- 4. Панель инспекции домена (WHOIS + Wayback Machine): Выезжающая справа боковая панель (Slide-over Drawer, 440px) -->
+    <div id="drawer-backdrop" onclick="closeDrawerDemo()"></div>
+    
+    <aside id="drawer-panel" class="shadow-none">
+        
+        <!-- Шапка панели: домен крупно, кнопка копирования, прямая ссылка, закрыть -->
+        <div class="h-[60px] px-6 border-b border-muted-border flex items-center justify-between bg-white shrink-0">
+            <div class="flex items-center gap-2 min-w-0 pr-3">
+                <div class="flex flex-col min-w-0">
+                    <h2 id="drawer-domain-title" class="font-mono text-base font-bold text-text truncate">market-cloud.ru</h2>
+                    <span id="drawer-domain-punycode" class="font-mono text-[10px] text-text-muted truncate hidden"></span>
+                </div>
+                <button type="button" onclick="copyCurrentDrawerDomain()" class="p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors shrink-0" title="Копировать домен">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </button>
+                <a id="drawer-external-link" href="http://market-cloud.ru" target="_blank" rel="noopener noreferrer" class="p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors shrink-0" title="Открыть в новой вкладке">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                </a>
+            </div>
+            <button type="button" onclick="closeDrawerDemo()" class="domain-dialog-close p-1.5 rounded-[3px] border border-muted-border hover:bg-muted text-text-muted hover:text-text transition-colors text-xs font-mono shrink-0" title="Закрыть панель">
+                ✕
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+            
+            <!-- Подзаголовок: дата освобождения -->
+            <div class="flex items-center justify-between text-xs font-mono pb-3 border-b border-muted-border">
+                <span class="text-text-muted">Дата освобождения:</span>
+                <span id="drawer-drop-date" class="font-semibold text-text tabular-nums">2026-11-23</span>
+            </div>
+
+            <!-- СЕКЦИЯ 1: Паспорт WHOIS (через MCP) -->
+            <div class="space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-[11px] font-semibold text-text-muted uppercase tracking-wider font-mono">Паспорт WHOIS (MCP)</h3>
+                    <span class="text-[10px] font-mono text-zinc-400">Источник: TCI WHOIS</span>
+                </div>
+                
+                <div class="border border-muted-border rounded-[4px] overflow-hidden bg-muted/40 divide-y divide-muted-border text-xs font-mono">
+                    <div class="grid grid-cols-[140px_1fr] px-3.5 py-2">
+                        <span class="text-text-muted">Регистратор</span>
+                        <span id="drawer-whois-registrar" class="text-text font-medium truncate">RU-CENTER-RU</span>
+                    </div>
+                    <div class="grid grid-cols-[140px_1fr] px-3.5 py-2">
+                        <span class="text-text-muted">Дата создания</span>
+                        <span id="drawer-whois-created" class="text-text tabular-nums">2017-04-10</span>
+                    </div>
+                    <div class="grid grid-cols-[140px_1fr] px-3.5 py-2">
+                        <span class="text-text-muted">Окончание оплаты</span>
+                        <span id="drawer-whois-paid" class="text-text tabular-nums">2026-11-23</span>
+                    </div>
+                    <div class="grid grid-cols-[140px_1fr] px-3.5 py-2 items-center">
+                        <span class="text-text-muted">Статус делегирования</span>
+                        <span class="inline-flex items-center gap-1.5 text-success-green font-medium">
+                            <span class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                            <span>REGISTERED, DELEGATED</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- СЕКЦИЯ 2: Карма в Wayback Machine -->
+            <div class="space-y-3 pt-2">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-[11px] font-semibold text-text-muted uppercase tracking-wider font-mono">Карма в Wayback Machine</h3>
+                    <span id="drawer-cache-badge" class="inline-flex items-center gap-1.5 text-[10px] font-mono text-text-muted">
+                        <span id="drawer-cache-dot" class="w-1.5 h-1.5 rounded-full bg-success-green"></span>
+                        <span id="drawer-cache-status">Из кэша (0.1с)</span>
+                    </span>
+                </div>
+
+                <!-- 3 компактные метрики в ряд -->
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="border border-muted-border rounded-[4px] p-2.5 bg-muted/30">
+                        <div id="drawer-metric-count" class="font-mono text-base font-bold text-text tabular-nums">1 234</div>
+                        <div class="text-[10px] text-text-muted mt-0.5">Всего снимков</div>
+                    </div>
+                    <div class="border border-muted-border rounded-[4px] p-2.5 bg-muted/30">
+                        <div id="drawer-metric-first" class="font-mono text-sm font-semibold text-text tabular-nums">2009</div>
+                        <div class="text-[10px] text-text-muted mt-0.5">Первый снимок</div>
+                    </div>
+                    <div class="border border-muted-border rounded-[4px] p-2.5 bg-muted/30">
+                        <div id="drawer-metric-last" class="font-mono text-sm font-semibold text-text tabular-nums">2026</div>
+                        <div class="text-[10px] text-text-muted mt-0.5">Последний снимок</div>
+                    </div>
+                </div>
+
+                <!-- Кнопка-ссылка «Открыть слепки в Web Archive ↗» -->
+                <div>
+                    <a id="drawer-archive-btn" href="https://web.archive.org/web/*/market-cloud.ru" target="_blank" rel="noopener noreferrer" class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium border border-muted-border rounded-[4px] hover:bg-muted text-text transition-colors">
+                        <span>Открыть слепки в Web Archive</span>
+                        <span class="text-text-muted">↗</span>
+                    </a>
+                </div>
+
+                <!-- Интерактивная кнопка запроса истории -->
+                <div class="pt-1">
+                    <button type="button" onclick="requestDrawerWaybackDemo()" id="drawer-request-btn" class="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-medium bg-accent text-white rounded-[4px] hover:bg-zinc-800 transition-colors hidden">
+                        Запросить историю
+                    </button>
+                    <div id="drawer-history-result" class="text-xs font-mono text-text-muted space-y-1 pt-2 border-t border-muted-border mt-2">
+                        <div>Снимков: 1 234</div>
+                        <div>Первый: 2009-03-15</div>
+                        <div>Последний: 2026-10-02</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </aside>
+
+    <!-- Floating State Switcher for Reviewer (вынесен из хедера в плавающий нижний тулбар) -->
+    <aside class="reviewer-dock" aria-label="Переключатель состояний прототипа">
+        <div class="flex items-center gap-2 pr-2 border-r border-zinc-700">
+            <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="font-semibold uppercase tracking-wider text-[10px] text-zinc-300 hidden md:inline">Состояния AI-макета:</span>
+        </div>
+        <div class="flex items-center gap-1.5" id="state-buttons">
+            <button type="button" onclick="setPrototypeState('default')" class="state-btn active" data-state="default">1. Каталог</button>
+            <button type="button" onclick="setPrototypeState('input')" class="state-btn" data-state="input">2. Валидация RE2</button>
+            <button type="button" onclick="setPrototypeState('loading')" class="state-btn" data-state="loading">3. Скелетон</button>
+            <button type="button" onclick="setPrototypeState('empty')" class="state-btn" data-state="empty">4. Пусто</button>
+            <button type="button" onclick="setPrototypeState('error')" class="state-btn" data-state="error">5. Ошибка сети</button>
+            <button type="button" onclick="setPrototypeState('modal')" class="state-btn" data-state="modal">6. Панель WHOIS (440px)</button>
+        </div>
+        <span id="current-state-desc" class="hidden"></span>
+    </aside>
+
+    <!-- Notification Toast for Copy -->
+    <div id="copy-toast" class="hidden fixed bottom-5 right-5 px-3 py-1.5 rounded-[4px] bg-accent text-white text-xs font-mono z-50">
+        Домен скопирован в буфер
+    </div>
+
+    <!-- Interactive Prototype Script -->
+    <script>
+        let currentActiveState = 'default';
+
+        function setPrototypeState(state) {
+            currentActiveState = state;
+            
+            // Update button styles
+            document.querySelectorAll('.state-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.state === state);
+            });
+
+            const descEl = document.getElementById('current-state-desc');
+            const searchInput = document.getElementById('search-input');
+            const errorBox = document.getElementById('search-error-box');
+            const re2Badge = document.getElementById('re2-badge');
+            const tableSkeleton = document.getElementById('table-skeleton');
+            const tableEmpty = document.getElementById('table-empty');
+            const tableError = document.getElementById('table-error');
+            const tableRows = document.getElementById('table-rows');
+
+            // Reset standard layout elements
+            closeDrawerDemo();
+            tableSkeleton.classList.add('hidden');
+            tableEmpty.classList.add('hidden');
+            tableError.classList.add('hidden');
+            tableRows.classList.remove('hidden');
+            errorBox.classList.add('hidden');
+            errorBox.style.display = 'none';
+            searchInput.classList.remove('border-error-red', 'bg-red-50/20');
+            re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-emerald-50 text-success-green border border-emerald-200';
+            re2Badge.textContent = 'RE2 OK';
+
+            if (state === 'default') {
+                descEl.textContent = '1. Каталог всех доменов • Таблица данных высокой плотности';
+                searchInput.value = '';
+            } else if (state === 'input') {
+                descEl.textContent = '2. Ввод / Валидация синтаксиса Google RE2 (ошибка в выражении)';
+                searchInput.value = 'invalid[regex';
+                searchInput.classList.add('border-error-red', 'bg-red-50/20');
+                re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-red-50 text-error-red border border-red-200';
+                re2Badge.textContent = 'RE2 ОШИБКА';
+                errorBox.classList.remove('hidden');
+                errorBox.style.display = 'flex';
+                document.getElementById('search-error-text').textContent = 'Ошибка синтаксиса Google RE2: незакрытый квантификатор \'[\'';
+            } else if (state === 'loading') {
+                descEl.textContent = '3. Загрузка / Аккуратный скелетон без мерцания';
+                tableRows.classList.add('hidden');
+                tableSkeleton.classList.remove('hidden');
+            } else if (state === 'empty') {
+                descEl.textContent = '4. Пустая выдача по заданным критериям фильтра';
+                tableRows.classList.add('hidden');
+                tableEmpty.classList.remove('hidden');
+            } else if (state === 'error') {
+                descEl.textContent = '5. Ошибка сети / реестра (HTTP 500) с возможностью повтора';
+                tableRows.classList.add('hidden');
+                tableError.classList.remove('hidden');
+            } else if (state === 'modal') {
+                descEl.textContent = '6. Паспорт WHOIS и Карма Wayback Machine в боковой панели (440px)';
+                openDrawerDemo('market-cloud.ru', '2026-11-23', 'RU-CENTER-RU', '2017-04-10', 1234, 2009, 2026);
+            }
+        }
+
+        function switchMainTab(tab) {
+            const allSec = document.getElementById('section-all');
+            const topSec = document.getElementById('section-top');
+            const allBtn = document.getElementById('tab-all-btn');
+            const topBtn = document.getElementById('tab-top-btn');
+
+            if (tab === 'all') {
+                allSec.classList.remove('hidden');
+                topSec.classList.add('hidden');
+                allBtn.className = 'px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all';
+                topBtn.className = 'px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all';
+            } else {
+                allSec.classList.add('hidden');
+                topSec.classList.remove('hidden');
+                topBtn.className = 'px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all';
+                allBtn.className = 'px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all';
+            }
+        }
+
+        function setTopDay(day) {
+            const todayBtn = document.getElementById('top-today-btn');
+            const tomorrowBtn = document.getElementById('top-tomorrow-btn');
+            if (day === 'today') {
+                todayBtn.className = 'px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all';
+                tomorrowBtn.className = 'px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all';
+            } else {
+                tomorrowBtn.className = 'px-3 py-1 rounded-[3px] bg-white text-text font-semibold border border-muted-border transition-all';
+                todayBtn.className = 'px-3 py-1 rounded-[3px] text-text-muted hover:text-text transition-all';
+            }
+        }
+
+        function applyPreset(query) {
+            const input = document.getElementById('search-input');
+            input.value = query;
+            onSearchInput(query);
+        }
+
+        function onSearchInput(val) {
+            const errorBox = document.getElementById('search-error-box');
+            const re2Badge = document.getElementById('re2-badge');
+            const input = document.getElementById('search-input');
+
+            if (val.includes('[') && !val.includes(']')) {
+                input.classList.add('border-error-red', 'bg-red-50/20');
+                re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-red-50 text-error-red border border-red-200';
+                re2Badge.textContent = 'RE2 ОШИБКА';
+                errorBox.classList.remove('hidden');
+                errorBox.style.display = 'flex';
+                document.getElementById('search-error-text').textContent = 'Ошибка синтаксиса Google RE2: незакрытый квантификатор \'[\'';
+            } else {
+                input.classList.remove('border-error-red', 'bg-red-50/20');
+                re2Badge.className = 'inline-flex items-center px-1.5 py-0.5 rounded-[3px] text-[10px] font-mono font-medium bg-emerald-50 text-success-green border border-emerald-200';
+                re2Badge.textContent = 'RE2 OK';
+                errorBox.classList.add('hidden');
+                errorBox.style.display = 'none';
+            }
+        }
+
+        function clearErrorDemo() {
+            document.getElementById('search-input').value = '';
+            onSearchInput('');
+        }
+
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeDrawerDemo();
+        });
+
+        function setDateFilter(f, btn) {
+            document.querySelectorAll('.date-btn').forEach(b => {
+                b.className = 'px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text date-btn';
+            });
+            btn.className = 'px-2 py-0.5 rounded-[3px] bg-white text-text font-semibold border border-muted-border date-btn';
+        }
+
+        function setZoneFilter(z, btn) {
+            document.querySelectorAll('.zone-btn').forEach(b => {
+                b.className = 'px-2 py-0.5 rounded-[3px] text-text-muted hover:text-text zone-btn';
+            });
+            btn.className = 'px-2 py-0.5 rounded-[3px] bg-white text-text font-semibold border border-muted-border zone-btn';
+        }
+
+        function openDrawerDemo(domain, date, registrar, created, count, first, last, punycode) {
+            const cleanDate = (date || '').replace(/^Дата освобождения:\s*/i, '').trim();
+            document.getElementById('drawer-domain-title').textContent = domain;
+            document.getElementById('drawer-drop-date').textContent = cleanDate;
+            
+            const punyEl = document.getElementById('drawer-domain-punycode');
+            if (punyEl) {
+                if (punycode) {
+                    punyEl.textContent = punycode;
+                    punyEl.classList.remove('hidden');
+                } else {
+                    punyEl.textContent = '';
+                    punyEl.classList.add('hidden');
+                }
+            }
+
+            document.getElementById('drawer-whois-registrar').textContent = registrar;
+            document.getElementById('drawer-whois-created').textContent = created;
+            document.getElementById('drawer-whois-paid').textContent = date;
+
+            const countEl = document.getElementById('drawer-metric-count');
+            const firstEl = document.getElementById('drawer-metric-first');
+            const lastEl = document.getElementById('drawer-metric-last');
+            const statusEl = document.getElementById('drawer-cache-status');
+            const dotEl = document.getElementById('drawer-cache-dot');
+            const btnEl = document.getElementById('drawer-request-btn');
+            const resEl = document.getElementById('drawer-history-result');
+
+            if (count) {
+                countEl.textContent = count.toLocaleString('ru-RU');
+                firstEl.textContent = first || '—';
+                lastEl.textContent = last || '—';
+                if (statusEl) statusEl.textContent = 'Из кэша (0.1с)';
+                if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-success-green';
+                if (btnEl) btnEl.classList.add('hidden');
+                if (resEl) {
+                    resEl.classList.remove('hidden');
+                    resEl.innerHTML = '<div>Снимков: ' + count.toLocaleString('ru-RU') + '</div><div>Первый: ' + (first || '—') + '</div><div>Последний: ' + (last || '—') + '</div>';
+                }
+            } else {
+                countEl.textContent = '—';
+                firstEl.textContent = '—';
+                lastEl.textContent = '—';
+                if (statusEl) statusEl.textContent = 'Не запрошено';
+                if (dotEl) dotEl.className = 'w-1.5 h-1.5 rounded-full bg-zinc-400';
+                if (btnEl) {
+                    btnEl.classList.remove('hidden');
+                    btnEl.textContent = 'Запросить историю';
+                    btnEl.disabled = false;
+                }
+                if (resEl) resEl.classList.add('hidden');
+            }
+            
+            const archHost = punycode || domain;
+            document.getElementById('drawer-archive-btn').href = 'https://web.archive.org/web/*/' + archHost;
+            document.getElementById('drawer-external-link').href = 'http://' + domain;
+
+            document.getElementById('drawer-backdrop').classList.add('open');
+            document.getElementById('drawer-panel').classList.add('open');
+        }
+
+        function requestDrawerWaybackDemo() {
+            const btnEl = document.getElementById('drawer-request-btn');
+            const countEl = document.getElementById('drawer-metric-count');
+            const firstEl = document.getElementById('drawer-metric-first');
+            const lastEl = document.getElementById('drawer-metric-last');
+            const statusEl = document.getElementById('drawer-cache-status');
+            const dotEl = document.getElementById('drawer-cache-dot');
+            const resEl = document.getElementById('drawer-history-result');
+
+            btnEl.disabled = true;
+            btnEl.textContent = 'Загрузка истории…';
+            statusEl.textContent = 'Запрос в архив...';
+            dotEl.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse';
+            countEl.textContent = '...';
+            firstEl.textContent = '...';
+            lastEl.textContent = '...';
+
+            setTimeout(() => {
+                countEl.textContent = '1 234';
+                firstEl.textContent = '2009';
+                lastEl.textContent = '2026';
+                statusEl.textContent = 'Из веб-архива';
+                dotEl.className = 'w-1.5 h-1.5 rounded-full bg-success-green';
+                btnEl.classList.add('hidden');
+                if (resEl) {
+                    resEl.classList.remove('hidden');
+                    resEl.innerHTML = '<div>Снимков: 1 234</div><div>Первый: 2009-03-15</div><div>Последний: 2026-10-02</div>';
+                }
+            }, 600);
+        }
+
+        function closeDrawerDemo() {
+            document.getElementById('drawer-backdrop').classList.remove('open');
+            document.getElementById('drawer-panel').classList.remove('open');
+        }
+
+        function copyCurrentDrawerDomain() {
+            const domain = document.getElementById('drawer-domain-title').textContent;
+            copyText(domain);
+        }
+
+        function copyText(txt) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(txt);
+            }
+            const toast = document.getElementById('copy-toast');
+            toast.textContent = 'Скопировано: ' + txt;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 2000);
+        }
+
+        function exportCsvDemo() {
+            copyText('domain,zone,length,drop_date\nmarket-cloud.ru,ru,15,2026-11-23');
+            const toast = document.getElementById('copy-toast');
+            toast.textContent = 'CSV выгружен в буфер обмена';
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 2000);
+        }
+
+        // Автоматическая инициализация состояния из query-параметра ?state=... или hash #...
+        window.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const stateFromUrl = urlParams.get('state') || window.location.hash.replace('#', '');
+            if (stateFromUrl) {
+                setPrototypeState(stateFromUrl);
+            }
+        });
+    </script>
+</body>
+</html>
